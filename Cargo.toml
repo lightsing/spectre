@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "spectre-lib",
+    "spectre-cli",
+    "spectre-gui/src-tauri"
+]
+resolver = "2"

@@ -117,10 +117,7 @@ impl Spectre {
             l1_queue_index: self.system.l1_queue_index,
         };
         let config_json = serde_json::to_string(&config)?;
-        let trace_json = geth_utils::l2trace(&config_json).map_err(|e| {
-            let geth_utils::Error::TracingError(s) = e;
-            SpectreError::TracingError(s)
-        })?;
+        let trace_json = geth_utils::l2trace(&config_json).map_err(SpectreError::TracingError)?;
         Ok(serde_json::from_str(&trace_json)?)
     }
 }

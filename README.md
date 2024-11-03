@@ -5,7 +5,7 @@ A scroll trace builder tool. (WIP: GUI)
 ## Getting Started
 
 ```bash
-cargo install --git https://github.com/lightsing/spectre spectre-cli
+cargo install --locked --git https://github.com/lightsing/spectre spectre-cli
 ```
 
 ## Usage

@@ -7,7 +7,8 @@ import {
   TabList,
   Button,
   useToastController,
-  Link, Toast, ToastBody, ToastFooter, ToastTitle
+  Link, Toast, ToastBody, ToastFooter, ToastTitle,
+  Toaster
 } from "@fluentui/react-components";
 import {
   PeopleAddRegular,
@@ -79,6 +80,7 @@ const App = () => {
           {selectedTab === "transactions" && <TransactionsTab />}
         </div>
       </main>
+      <Toaster toasterId={toasterId} />
     </FluentProvider >
   );
 }

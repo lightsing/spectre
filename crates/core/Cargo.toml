@@ -1,7 +1,8 @@
 [package]
 name = "spectre"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [dependencies]
 alloy-consensus = "0.5"
@@ -10,7 +11,6 @@ alloy-network = "0.5"
 alloy-primitives = { version = "0.8", features = ["serde"] }
 alloy-signer = "0.5"
 alloy-signer-local = "0.5"
-geth-utils = { git = "https://github.com/lightsing/geth-utils", features = ["vendor"] }
 hex = "0.4"
 rand = { version = "0.8", features = ["small_rng"] }
 serde = { version = "1.0", features = ["derive"] }

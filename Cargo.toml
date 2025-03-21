@@ -1,7 +1,39 @@
 [workspace]
 members = [
-    "spectre-lib",
-    "spectre-cli",
-    "spectre-gui/src-tauri"
+    "crates/testnet"
+#    "crates/*",
+#    "gui/src-tauri"
 ]
 resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+# https://github.com/alloy-rs/alloy
+alloy = { version = "0.12", default-features = false }
+alloy-consensus = { version = "0.12", default-features = false }
+alloy-eips = { version = "0.12", default-features = false }
+alloy-genesis = { version = "0.12", default-features = false }
+alloy-network = { version = "0.12", default-features = false }
+alloy-provider = { version = "0.12", default-features = false }
+alloy-rpc-types-eth = { version = "0.12", default-features = false }
+alloy-serde = { version = "0.12", default-features = false }
+alloy-signer = { version = "0.12", default-features = false }
+alloy-signer-local = { version = "0.12", default-features = false }
+alloy-transport = { version = "0.12", default-features = false }
+# https://github.com/alloy-rs/rlp
+alloy-rlp = { version = "0.3", default-features = false }
+# https://github.com/alloy-rs/trie
+alloy-trie = { version = "0.7", default-features = false }
+# https://github.com/alloy-rs/core
+alloy-primitives = { version = "0.8", default-features = false }
+
+ctor = "0.4"
+rand = { version = "0.9", default-features = false }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false }
+url = "2.5"

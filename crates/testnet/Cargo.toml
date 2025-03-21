@@ -1,0 +1,21 @@
+[package]
+name = "testnet"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+alloy-genesis.workspace = true
+alloy-provider = { workspace = true, features = [] }
+alloy-signer.workspace = true
+alloy-transport = { workspace = true, features = []}
+eth-keystore = { version = "0.5", features = ["geth-compat"] }
+serde_json.workspace = true
+tempfile = "3.19"
+tracing.workspace = true
+rand = "0.8"
+url.workspace = true
+
+[dev-dependencies]
+ctor.workspace = true
+tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }

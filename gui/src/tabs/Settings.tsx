@@ -1,4 +1,4 @@
-import { Card, Field, Input, makeStyles, Select } from "@fluentui/react-components";
+import { Card, Divider, Field, Input, makeStyles, Select } from "@fluentui/react-components";
 
 type ValidateFunction = (value: string) => {
     validationState: "none" |
@@ -28,8 +28,7 @@ const useStyles = makeStyles({
     },
     card: {
         padding: "20px",
-        marginRight: "20px",
-        width: "calc(50% - 20px)",
+        width: "100%",
     },
     flex: {
         display: "flex",
@@ -75,6 +74,7 @@ const SettingsTab = () => {
                     </div>
                 </Field>
             </div>
+            <Divider vertical />
             <div className={styles.card}>
                 <Field
                     label="Coinbase"

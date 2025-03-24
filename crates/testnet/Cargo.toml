@@ -6,16 +6,24 @@ license.workspace = true
 
 [dependencies]
 alloy-genesis.workspace = true
-alloy-provider = { workspace = true, features = [] }
+alloy-provider = { workspace = true, features = ["ipc"] }
 alloy-signer.workspace = true
-alloy-transport = { workspace = true, features = []}
+alloy-transport.workspace = true
 eth-keystore = { version = "0.5", features = ["geth-compat"] }
 serde_json.workspace = true
 tempfile = "3.19"
 tracing.workspace = true
 rand = "0.8"
-url.workspace = true
+sbv-primitives = { workspace = true, features = ["network-types"] }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["process"] }
 
 [dev-dependencies]
 ctor.workspace = true
+tokio = { workspace = true, features = ["rt", "macros"] }
 tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
+
+[features]
+scroll = [
+    "sbv-primitives/scroll-network-types"
+]

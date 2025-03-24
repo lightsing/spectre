@@ -3,45 +3,80 @@ extern crate tracing;
 
 use alloy_genesis::CliqueConfig;
 pub use alloy_genesis::Genesis;
+pub use alloy_provider::Provider;
+use alloy_provider::{IpcConnect, ProviderBuilder, RootProvider};
 pub use alloy_signer::k256::ecdsa::SigningKey;
 use alloy_signer::utils::secret_key_to_address;
 use rand::{SeedableRng, rngs::StdRng};
-use std::{
-    fmt::Debug,
-    fs::File,
-    io,
-    io::{BufRead, BufReader},
-    path::PathBuf,
-};
+use sbv_primitives::types::Network;
+use std::{fmt::Debug, fs::File, io, path::PathBuf, sync::Arc};
 use tempfile::TempDir;
-use url::Url;
+use tokio::{
+    io::{AsyncBufReadExt, BufReader},
+    process::Command,
+};
 
-#[derive(Debug)]
+/// Test net builder error.
+#[derive(Debug, thiserror::Error)]
 pub enum TestNetBuilderError {
+    #[error("genesis not set")]
     GenesisNotSet,
-
+    #[error("geth path not set")]
     GethPathNotSet,
+    #[error("geth path does not exist")]
     GethPathDoesNotExist,
 
+    #[error("failed to create temp dir: {0}")]
     FailedToCreateTempDir(io::Error),
+    #[error("failed to write file: {0}")]
     FailedToWriteFile(io::Error),
+    #[error("failed to write keystore: {0}")]
     FailedToWriteKeystore(eth_keystore::KeystoreError),
+    #[error("serialization error: {0}")]
     Serialization(serde_json::Error),
-
+    #[error("failed to init geth")]
     FailedInit,
+    #[error("failed to connect to geth: {0}")]
+    FailedToConnectToGeth(alloy_transport::TransportError),
 }
 
+/// Test net builder.
+#[derive(Default)]
 pub struct TestNetBuilder {
     genesis: Option<Genesis>,
     signing_key: Option<SigningKey>,
     geth_path: Option<PathBuf>,
-    /// set random_seed for deterministic tests
     random_seed: Option<u64>,
 }
 
 impl TestNetBuilder {
+    /// Set the genesis configuration.
+    pub fn genesis(mut self, genesis: Genesis) -> Self {
+        self.genesis = Some(genesis);
+        self
+    }
+
+    /// Set the geth executable path.
+    pub fn geth_path(mut self, geth_path: PathBuf) -> Self {
+        self.geth_path = Some(geth_path);
+        self
+    }
+
+    /// Optional, Set the signing key of the miner.
+    pub fn signing_key(mut self, signing_key: SigningKey) -> Self {
+        self.signing_key = Some(signing_key);
+        self
+    }
+
+    /// Optional, set the random seed for deterministic behavior.
+    pub fn random_seed(mut self, random_seed: u64) -> Self {
+        self.random_seed = Some(random_seed);
+        self
+    }
+
+    /// Create the test net provider.
     #[instrument(skip(self))]
-    pub fn build(self) -> Result<TestNetProvider, TestNetBuilderError> {
+    pub async fn build(self) -> Result<TestNetProvider, TestNetBuilderError> {
         use TestNetBuilderError::*;
         // for deterministic tests
         let mut rng = if let Some(random_seed) = self.random_seed {
@@ -99,12 +134,13 @@ impl TestNetBuilder {
         trace!(keystore_dir = ?keystore_dir.display(), keystore_name = ?keystore_name);
 
         // execute geth init
-        let geth_init_status = std::process::Command::new(&geth_path)
+        let geth_init_status = Command::new(&geth_path)
             .arg("--datadir")
             .arg(&geth_data_dir)
             .arg("init")
             .arg(geth_data_dir.join("genesis.json"))
             .output()
+            .await
             .map_err(|e| {
                 error!("Failed to run geth init: {}", e);
                 FailedInit
@@ -118,29 +154,30 @@ impl TestNetBuilder {
         }
 
         // execute geth
-        let mut child = std::process::Command::new(&geth_path)
+        let mut child = Command::new(&geth_path)
             .args([
                 "--port=0",
                 "--nodiscover",
                 "--nat=none",
                 "--syncmode=full",
                 "--verbosity=3",
-                "--http",
-                "--http.port=0",
-                "--http.addr=127.0.0.1",
-                "--http.vhosts=*",
-                "--http.corsdomain=*",
-                "--http.api=eth,scroll,net,web3,debug,clique",
-                "--allow-insecure-unlock",
+                // "--http",
+                // "--http.port=0",
+                // "--http.addr=127.0.0.1",
+                // "--http.vhosts=*",
+                // "--http.corsdomain=*",
+                // "--http.api=eth,scroll,net,web3,debug,clique",
+                // "--allow-insecure-unlock",
                 "--mine",
             ])
             .arg("--datadir")
-            .arg(geth_data_dir)
+            .arg(&geth_data_dir)
             .arg("--unlock")
             .arg(signer_addr.to_string())
             .arg("--password")
             .arg(password_file)
             .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
             .spawn()
             .map_err(|e| {
                 error!("Failed to run geth: {}", e);
@@ -148,63 +185,59 @@ impl TestNetBuilder {
             })?;
 
         let mut stderr = child.stderr.take().unwrap();
-        let url = {
+        {
             let mut stderr = BufReader::new(&mut stderr).lines();
-            'outer: loop {
-                let Some(Ok(line)) = stderr.next() else {
-                    break None;
+            loop {
+                let Ok(Some(line)) = stderr.next_line().await else {
+                    return Err(FailedInit);
                 };
                 debug!("{}", line);
-                if line.contains("HTTP server started") {
-                    for item in line.split_whitespace() {
-                        if item.starts_with("endpoint=") {
-                            let host = item.split('=').last().unwrap();
-                            break 'outer Some(Url::parse(&*format!("http://{host}")).unwrap());
-                        }
-                    }
+                if line.contains("IPC endpoint opened") {
+                    break;
                 }
             }
-            .ok_or(FailedInit)?
         };
-        trace!(url = ?url);
         child.stderr = Some(stderr);
 
-        let provider = TestNetProvider {
+        let ipc = IpcConnect::new(geth_data_dir.join("geth.ipc"));
+        let inner = ProviderBuilder::<_, _, Network>::default()
+            .on_ipc(ipc)
+            .await
+            .map_err(FailedToConnectToGeth)?;
+
+        let provider = TestNetProvider(Arc::new(TestNetProviderInner {
             temp_dir,
-            child,
-            url,
-        };
+            child: Some(child),
+            inner,
+        }));
         trace!(provider = ?provider);
 
         Ok(provider)
     }
 }
 
-pub struct TestNetProvider {
-    temp_dir: TempDir,
-    child: std::process::Child,
-    url: Url,
-}
+/// Test net provider.
+#[derive(Clone)]
+pub struct TestNetProvider(Arc<TestNetProviderInner>);
 
-impl TestNetProvider {
-    pub fn url(&self) -> &Url {
-        &self.url
-    }
+struct TestNetProviderInner {
+    temp_dir: TempDir,
+    child: Option<tokio::process::Child>,
+    inner: RootProvider<Network>,
 }
 
 impl Debug for TestNetProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TestNetProvider")
-            .field("temp_dir", &self.temp_dir.path())
-            .field("child", &self.child.id())
-            .field("url", &self.url.as_str())
+            .field("temp_dir", &self.0.temp_dir.path())
+            .field("child", &self.0.child.as_ref().unwrap().id())
             .finish()
     }
 }
 
-impl Drop for TestNetProvider {
-    fn drop(&mut self) {
-        self.child.kill().ok();
+impl Provider<Network> for TestNetProvider {
+    fn root(&self) -> &RootProvider<Network> {
+        &self.0.inner
     }
 }
 
@@ -223,8 +256,8 @@ fn init() {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test() {
+    #[tokio::test]
+    async fn test() {
         let builder = TestNetBuilder {
             genesis: Some(Genesis::default()),
             signing_key: None,
@@ -233,6 +266,7 @@ mod tests {
             )),
             random_seed: None,
         };
-        builder.build().unwrap();
+        let provider = builder.build().await.unwrap();
+        println!("{:?}", provider);
     }
 }

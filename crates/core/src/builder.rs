@@ -674,7 +674,7 @@ mod tests {
     #[tokio::test]
     async fn test_de_and_trace() {
         let config: SpectreBuilder =
-            toml::from_str(include_str!("../../../examples/minimal.toml")).unwrap();
+            toml::from_str(include_str!("../../../examples/full.toml")).unwrap();
         config.build().unwrap().trace().await.unwrap();
     }
 }

@@ -28,7 +28,7 @@ pub enum SpectreError {
 // #[derive(Debug)]
 pub struct Spectre {
     pub(crate) rng: StdRng,
-    pub(crate) geth_path: PathBuf,
+    pub(crate) geth_path: Option<PathBuf>,
     pub(crate) genesis: Genesis,
     pub(crate) wallets: HashMap<Address, PrivateKeySigner>,
     pub(crate) transactions: Vec<(Address, TypedTransaction)>,
@@ -36,11 +36,11 @@ pub struct Spectre {
 
 impl Spectre {
     pub async fn trace(self) -> Result<Vec<ExecutionWitness>, SpectreError> {
-        let provider = testnet::TestNetBuilder::default()
-            .geth_path(self.geth_path)
-            .genesis(self.genesis)
-            .build()
-            .await?;
+        let mut provider_builder = testnet::TestNetBuilder::default();
+        if let Some(geth_path) = self.geth_path {
+            provider_builder = provider_builder.geth_path(geth_path);
+        }
+        let provider = provider_builder.genesis(self.genesis).build().await?;
 
         let witnesses = vec![];
         for (from, mut tx) in self.transactions.into_iter() {

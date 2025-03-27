@@ -288,10 +288,7 @@ impl SpectreBuilder {
 
         Ok(Spectre {
             rng,
-            geth_path: self
-                .system
-                .geth_path
-                .unwrap_or_else(|| PathBuf::from("/usr/bin/geth")),
+            geth_path: self.system.geth_path,
             genesis,
             wallets,
             transactions,
@@ -676,8 +673,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_de_and_trace() {
-        let config: SpectreBuilder = toml::from_str(include_str!("../../../example.toml")).unwrap();
-        println!("{:#?}", config);
+        let config: SpectreBuilder =
+            toml::from_str(include_str!("../../../examples/minimal.toml")).unwrap();
         config.build().unwrap().trace().await.unwrap();
     }
 }

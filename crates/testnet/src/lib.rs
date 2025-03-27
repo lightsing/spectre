@@ -22,7 +22,7 @@ use tokio::{
 pub enum TestNetBuilderError {
     #[error("genesis not set")]
     GenesisNotSet,
-    #[error("geth path not set")]
+    #[error("geth path not set and not found in path")]
     GethPathNotSet,
     #[error("geth path does not exist")]
     GethPathDoesNotExist,
@@ -86,7 +86,10 @@ impl<'a> TestNetBuilder<'a> {
             &mut StdRng::from_entropy()
         };
 
-        let geth_path = self.geth_path.ok_or(GethPathNotSet)?;
+        let geth_path = self
+            .geth_path
+            .or_else(|| which::which("geth").ok())
+            .ok_or(GethPathNotSet)?;
         if !geth_path.exists() || !geth_path.is_file() {
             return Err(GethPathDoesNotExist);
         }

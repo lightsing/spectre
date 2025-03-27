@@ -1,0 +1,23 @@
+# this is the minimal specture example:
+
+# - if your geth is at "/usr/bin/geth", you can omit the following system section
+#[system]
+#geth-path = "/usr/bin/geth" # default to this
+
+
+[[alloc]]
+address = "alice" # use alias instead of address
+balance = "100 Ether" # set account balance to 100 ether
+
+# wallet account
+[[wallet]]
+name = "alice" # use this as alias to refer to this account
+
+[[transactions]]
+type = 0x00
+from = "alice"
+to = "0x0000000000000000000000000000000000000000"
+gas-price = "10 Gwei"
+gas-limit = 21000
+value = "10 Ether"
+

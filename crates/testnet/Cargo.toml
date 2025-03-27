@@ -18,6 +18,7 @@ rand = "0.8"
 sbv-primitives = { workspace = true, features = ["network-types"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["process"] }
+which = "7.0"
 
 [features]
 scroll = [

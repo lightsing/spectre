@@ -87,9 +87,9 @@ pub enum BoolOr<T> {
     Value(T),
 }
 
-impl Default for BoolOr<u64> {
+impl<T> Default for BoolOr<T> {
     fn default() -> Self {
-        BoolOr::Value(0)
+        BoolOr::Bool(false)
     }
 }
 

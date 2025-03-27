@@ -113,7 +113,7 @@ pub struct GenesisBuilder {
     pub timestamp: u64,
     #[serde(default = "default_block_gas_limit")]
     pub gas_limit: u64,
-    #[serde(default)]
+    #[serde(default = "default_difficulty")]
     pub difficulty: U256,
     #[serde(default)]
     pub mix_hash: B256,
@@ -129,7 +129,7 @@ pub struct ChainConfigBuilder {
 
     #[serde(default = "default_enabled")]
     pub homestead_block: BoolOr<u64>,
-    #[serde(default = "default_enabled")]
+    #[serde(default)]
     pub dao_fork_block: BoolOr<u64>,
     #[serde(default = "default_true")]
     pub dao_fork_support: bool,
@@ -304,7 +304,7 @@ impl GenesisBuilder {
         self,
         chain_config: ChainConfig,
         alloc: BTreeMap<Address, GenesisAccount>,
-    ) -> WithOtherFields<Genesis> {
+    ) -> Genesis {
         let genesis = Genesis {
             config: chain_config,
             nonce: self.nonce,
@@ -317,19 +317,6 @@ impl GenesisBuilder {
             alloc,
             ..Default::default()
         };
-        #[allow(unused_mut)]
-        let mut genesis = WithOtherFields::new(genesis);
-
-        #[cfg(feature = "scroll")]
-        {
-            genesis.other.insert(
-                "scroll".to_string(),
-                json!({
-                    "useZktrie": false,
-                }),
-            );
-        }
-
         genesis
     }
 }
@@ -442,7 +429,7 @@ impl TransactionBuilder {
     fn build_with(
         self,
         idx: usize,
-        genesis: &WithOtherFields<Genesis>,
+        genesis: &Genesis,
         wallets: &HashMap<String, PrivateKeySigner>,
         defaults: &DefaultsBuilder,
     ) -> Result<(Address, TypedTransaction), BuilderError> {
@@ -531,7 +518,7 @@ impl Default for ChainConfigBuilder {
         ChainConfigBuilder {
             chain_id: default_chain_id(),
             homestead_block: BoolOr::Value(0),
-            dao_fork_block: BoolOr::Value(0),
+            dao_fork_block: BoolOr::Bool(false),
             dao_fork_support: true,
             eip150_block: BoolOr::Value(0),
             eip155_block: BoolOr::Value(0),
@@ -605,6 +592,10 @@ fn default_now() -> u64 {
 
 fn default_block_gas_limit() -> u64 {
     30_000_000
+}
+
+fn default_difficulty() -> U256 {
+    U256::from_limbs([1, 0, 0, 0])
 }
 
 #[cfg(not(feature = "scroll"))]

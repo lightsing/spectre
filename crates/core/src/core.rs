@@ -29,7 +29,7 @@ pub enum SpectreError {
 pub struct Spectre {
     pub(crate) rng: StdRng,
     pub(crate) geth_path: PathBuf,
-    pub(crate) genesis: WithOtherFields<Genesis>,
+    pub(crate) genesis: Genesis,
     pub(crate) wallets: HashMap<Address, PrivateKeySigner>,
     pub(crate) transactions: Vec<(Address, TypedTransaction)>,
 }

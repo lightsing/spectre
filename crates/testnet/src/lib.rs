@@ -44,7 +44,7 @@ pub enum TestNetBuilderError {
 /// Test net builder.
 #[derive(Default)]
 pub struct TestNetBuilder<'a> {
-    genesis: Option<WithOtherFields<Genesis>>,
+    genesis: Option<Genesis>,
     signing_key: Option<SigningKey>,
     geth_path: Option<PathBuf>,
     rng: Option<&'a mut StdRng>,
@@ -52,7 +52,7 @@ pub struct TestNetBuilder<'a> {
 
 impl<'a> TestNetBuilder<'a> {
     /// Set the genesis configuration.
-    pub fn genesis(mut self, genesis: WithOtherFields<Genesis>) -> Self {
+    pub fn genesis(mut self, genesis: Genesis) -> Self {
         self.genesis = Some(genesis);
         self
     }
@@ -117,11 +117,28 @@ impl<'a> TestNetBuilder<'a> {
         std::fs::write(&password_file, "testnet").map_err(FailedToWriteFile)?;
         trace!(password_file = ?password_file);
 
+        let mut serialized = serde_json::to_value(&genesis).unwrap();
+        #[cfg(feature = "scroll")]
+        {
+            serialized
+                .get_mut("config")
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .insert(
+                    "scroll".to_string(),
+                    serde_json::json!({
+                        "useZktrie": false,
+                        "feeVaultAddress": "0x0000000000000000000000000000000000000000"
+                    }),
+                );
+        }
+
         // write genesis.json
-        debug!("{}", serde_json::to_string_pretty(&genesis).unwrap());
+        debug!("{}", serde_json::to_string_pretty(&serialized).unwrap());
         serde_json::to_writer_pretty(
             File::create(geth_data_dir.join("genesis.json")).map_err(FailedToWriteFile)?,
-            &genesis,
+            &serialized,
         )
         .map_err(Serialization)?;
         // write keystore

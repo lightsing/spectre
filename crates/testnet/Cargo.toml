@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 alloy-genesis.workspace = true
 alloy-provider = { workspace = true, features = ["ipc"] }
+alloy-serde.workspace = true
 alloy-signer.workspace = true
 alloy-transport.workspace = true
 eth-keystore = { version = "0.5", features = ["geth-compat"] }
@@ -17,11 +18,6 @@ rand = "0.8"
 sbv-primitives = { workspace = true, features = ["network-types"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["process"] }
-
-[dev-dependencies]
-ctor.workspace = true
-tokio = { workspace = true, features = ["rt", "macros"] }
-tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
 
 [features]
 scroll = [

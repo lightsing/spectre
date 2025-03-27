@@ -1,85 +1,72 @@
 # default values are commented out
 [system]
 random-seed = 0xdeadbeef # set random seed for deterministic execution, omit to disable this behavior
-# chain-id = 1 # if not specified, set chain id to 1
-# l1-queue-index = 0 # if not specified, set l1-queue-index to 1
-default-balance = "100 Ether" # set account balance to 100 ether, omit to disable this behavior
-default-gas-price = "1 Gwei" # set the default gas price used in transactions, omit to disable this behavior
-default-gas-limit = 1000000 # set the default gas limit used in transactions, omit to disable this behavior
+geth-path = "/Users/hhq/workspace/go-ethereum/build/bin/geth"
 
-[block]
-# coinbase = "0x0000000000000000000000000000000000000000" # if not specified, set coinbase to 0x0
-# number = 0xcafe # if not specified, set block number to 0xcafe
-# timestamp = now # if not specified, set timestamp to now
-# gas-limit = 10_000_000 # if not specified, set gas limit to 10_000_000 (10M)
-# base-fee = "0 ether" # if not specified, set base fee to 0
-# difficulty = 0 # if not specified, set difficulty to 0
-# history-hashes = [] # if not specified, set history hashes to empty list
+[defaults]
+account-balance = "100 Ether" # set account balance to 100 ether, omit to disable this behavior
+tx-gas-price = "10 Gwei" # set the default gas price used in transactions, omit to disable this behavior
+tx-max-fee-per-gas = "10 Gwei" # set the default max fee per gas used in transactions, omit to disable this behavior
+tx-priority-fee-per-gas = "1 Gwei" # set the default priority fee per gas used in transactions, omit to disable this behavior
+tx-gas-limit = 1000000 # set the default gas limit used in transactions, omit to disable this behavior
 
-# account without secret
-[[accounts]]
-address = "0x000000000000000000000000000000000cafe111"
-nonce = 10
+[genesis]
+# nonce = 0 # set the nonce of the genesis block, default is 0
+# timestamp = now # set the timestamp of the genesis block, default is the current time
+# gas-limit = 30000000 # set the gas limit of the genesis block, default is 30,000,000
+# difficulty = "0x1" # set the difficulty of the genesis block, default is 1
+# mix-hash = "0x0000000000000000000000000000000000000000000000000000000000000000" # set the mix hash of the genesis block, default is 0
+# coinbase = "0x0000000000000000000000000000000000000000"
 
-# account with code
-[[accounts]]
-address = "0x000000000000000000000000000000000cafe222"
-# nonce = 0
-code = "0x601000"
+[chain]
+# chain-id = 22222 # set the chain id, default is 22222 for scroll
 
-# account with mnemonic code
-[[accounts]]
-alias = "acc3" # use this as alias to refer to this account
-address = "0x000000000000000000000000000000000cafe333"
-# nonce = 0
-code = """
-PUSH1 0x42
-PUSH0
-MSTORE
-PUSH1 32
-PUSH0
-RETURN
-"""
+# homestead-block = 0 # default enabled, pass false to disable
+# dao-fork-block = 0 # default enabled, pass false to disable
+# dao-fork-support = true # default enabled, pass false to disable
+# eip150-block = 0 # default enabled, pass false to disable
+# eip155-block = 0 # default enabled, pass false to disable
+# eip158-block = 0 # default enabled, pass false to disable
+# byzantium-block = 0 # default enabled, pass false to disable
+# constantinople-block = 0 # default enabled, pass false to disable
+# petersburg-block = 0 # default enabled, pass false to disable
+# istanbul-block = 0 # default enabled, pass false to disable
+# muir-glacier-block = 0 # default enabled, pass false to disable
+# berlin-block = 0 # default enabled, pass false to disable
+# london-block = 0 # default enabled, pass false to disable
+# arrow-glacier-block = 0 # default enabled, pass false to disable
+# gray-glacier-block = 0 # default enabled, pass false to disable
+# merge-netsplit-block = 0 # default enabled, pass false to disable
+# shanghai-time = 0 # default enabled, pass false to disable
 
-# account with mnemonic code and storage
-[[accounts]]
-address = "0x000000000000000000000000000000000cafe444"
-nonce = 1
-code = """
-PUSH0
-CALLDATALOAD
-SLOAD
-PUSH0
-MSTORE
-PUSH1 32
-PUSH0
-RETURN
-"""
-storage = { "0x00" = "0x01", "0x01" = "0x02" }
+# scroll forks
+# curie-block = 0 # default enabled, pass false to disable
+# darwin-time = 0 # default enabled, pass false to disable
+# darwinv2-time = 0 # default enabled, pass false to disable
+# euclid-time = 0 # default enabled, pass false to disable
+# euclidv2-time = 0 # default enabled, pass false to disable
+
+# cancun-time = false # default disabled in scroll, pass other values to enable
+# prague-time = false # default disabled in scroll, pass other values to enable
+# osaka-time = false # default disabled in scroll, pass other values to enable
+
+[[alloc]]
+address = "0x5300000000000000000000000000000000000000"
+# nonce = 0 # set the nonce of the account, default is 0
+code = "0x608060405234801561001057600080fd5b50600436106100935760003560e01c806383cc76601161006657806383cc7660146100fc5780638da5cb5b1461010f578063c4d66de814610122578063d4b9f4fa14610135578063f2fde38b1461013e57600080fd5b806326aad7b7146100985780633cb747bf146100b4578063600a2e77146100df578063715018a6146100f2575b600080fd5b6100a160015481565b6040519081526020015b60405180910390f35b6053546100c7906001600160a01b031681565b6040516001600160a01b0390911681526020016100ab565b6100a16100ed36600461054a565b610151565b6100fa6101f6565b005b6100a161010a36600461054a565b61022c565b6052546100c7906001600160a01b031681565b6100fa610130366004610563565b610243565b6100a160005481565b6100fa61014c366004610563565b6102db565b6053546000906001600160a01b031633146101a45760405162461bcd60e51b815260206004820152600e60248201526d37b7363c9036b2b9b9b2b733b2b960911b60448201526064015b60405180910390fd5b6000806101b084610367565b60408051838152602081018890529294509092507ffaa617c2d8ce12c62637dbce76efcc18dae60574aa95709bdcedce7e76071693910160405180910390a19392505050565b6052546001600160a01b031633146102205760405162461bcd60e51b815260040161019b90610593565b61022a6000610486565b565b602a816028811061023c57600080fd5b0154905081565b6052546001600160a01b0316331461026d5760405162461bcd60e51b815260040161019b90610593565b600154156102b15760405162461bcd60e51b815260206004820152601160248201527063616e6e6f7420696e697469616c697a6560781b604482015260640161019b565b6102b96104d8565b605380546001600160a01b0319166001600160a01b0392909216919091179055565b6052546001600160a01b031633146103055760405162461bcd60e51b815260040161019b90610593565b6001600160a01b03811661035b5760405162461bcd60e51b815260206004820152601d60248201527f6e6577206f776e657220697320746865207a65726f2061646472657373000000604482015260640161019b565b61036481610486565b50565b60035460009081906103bb5760405162461bcd60e51b815260206004820152601a60248201527f63616c6c206265666f726520696e697469616c697a6174696f6e000000000000604482015260640161019b565b6001548360005b8215610456576103d36002846105e0565b60000361041f5781602a82602881106103ee576103ee6105ca565b01556104188260028360288110610407576104076105ca565b015460009182526020526040902090565b915061044a565b610447602a8260288110610435576104356105ca565b01548360009182526020526040902090565b91505b600192831c92016103c2565b81602a826028811061046a5761046a6105ca565b0155506000819055600180548082019091559590945092505050565b605280546001600160a01b038381166001600160a01b0319831681179093556040519116919082907f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e090600090a35050565b60005b60286104e8826001610618565b10156103645761051960028260288110610504576105046105ca565b015460028360288110610407576104076105ca565b6002610526836001610618565b60288110610536576105366105ca565b01558061054281610631565b9150506104db565b60006020828403121561055c57600080fd5b5035919050565b60006020828403121561057557600080fd5b81356001600160a01b038116811461058c57600080fd5b9392505050565b60208082526017908201527f63616c6c6572206973206e6f7420746865206f776e6572000000000000000000604082015260600190565b634e487b7160e01b600052603260045260246000fd5b6000826105fd57634e487b7160e01b600052601260045260246000fd5b500690565b634e487b7160e01b600052601160045260246000fd5b8082018082111561062b5761062b610602565b92915050565b60006001820161064357610643610602565b506001019056fea26469706673582212208fb1cb9933bb17dd0a7c17de7c890919b08d2fd7eb2bede7b41caa32709b30b564736f6c63430008100033"
+storage = { "0x0000000000000000000000000000000000000000000000000000000000000052" = "0x00000000000000000000000018960eec21b1878c581937a14c5c3c43008f6b6b" }
+
+[[alloc]]
+address = "alice" # use alias instead of address
+balance = "100 Ether" # set account balance to 100 ether
 
 # wallet account
-[[accounts]]
-wallet = true
-alias = "wallet0" # use this as alias to refer to this account
+[[wallet]]
+name = "alice" # use this as alias to refer to this account
 secret = "93cb550ad61cddcd28062350644d68426473032ed256ab0f29b57d5fc652f9e4" # omit this to generate a new one on runtime
 
 [[transactions]]
-type = "Eip155"
-from = "wallet0"
-to = "0x000000000000000000000000000000000cafe222"
-
-[[transactions]]
-type = "Eip1559"
-from = "wallet0"
-to = "0x000000000000000000000000000000000cafe444"
-input = "0x0000000000000000000000000000000000000000000000000000000000000000"
-access-list = { "0x000000000000000000000000000000000cafe444" = [ "0x0000000000000000000000000000000000000000000000000000000000000000" ] }
-max-priority-fee-per-gas = "1 wei"
-max-fee-per-gas = "1 wei"
-
-[[transactions]]
-type = "Eip2930"
-from = "wallet0"
-to = "0x000000000000000000000000000000000cafe444"
-input = "0x0000000000000000000000000000000000000000000000000000000000000000"
-access-list = { "0x000000000000000000000000000000000cafe444" = [ "0x0000000000000000000000000000000000000000000000000000000000000000" ] }
+type = 0x00
+from = "alice"
+to = "0x0000000000000000000000000000000000000000"
+value = "10 Ether"

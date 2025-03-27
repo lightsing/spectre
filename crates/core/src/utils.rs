@@ -1,10 +1,14 @@
-use alloy_primitives::bytes::{BufMut, BytesMut};
-use alloy_primitives::utils::{ParseUnits, Unit};
-use alloy_primitives::{utils::parse_units, Address, Bytes, U256};
+use alloy_primitives::{
+    Address, Bytes, U256,
+    bytes::{BufMut, BytesMut},
+    utils::{ParseUnits, Unit, parse_units},
+};
 use hex::FromHexError;
 use serde::{Deserialize, Deserializer};
-use std::fmt::{Debug, Formatter};
-use std::str::FromStr;
+use std::{
+    fmt::{Debug, Formatter},
+    str::FromStr,
+};
 
 #[derive(Default, Copy, Clone, PartialEq, Eq)]
 pub struct Ether(pub U256);
@@ -76,24 +80,25 @@ impl Debug for Ether {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AddressOrAlias {
-    Address(Address),
-    Alias(String),
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum BoolOr<T> {
+    Bool(bool),
+    Value(T),
 }
 
-impl<'de> Deserialize<'de> for AddressOrAlias {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        if s.starts_with("0x") {
-            Ok(AddressOrAlias::Address(
-                Address::from_str(s.as_str()).map_err(serde::de::Error::custom)?,
-            ))
-        } else {
-            Ok(AddressOrAlias::Alias(s.to_string()))
+impl Default for BoolOr<u64> {
+    fn default() -> Self {
+        BoolOr::Value(0)
+    }
+}
+
+impl<T: Default> BoolOr<T> {
+    pub fn into_option(self) -> Option<T> {
+        match self {
+            BoolOr::Bool(true) => Some(T::default()),
+            BoolOr::Value(value) => Some(value),
+            _ => None,
         }
     }
 }
@@ -265,6 +270,14 @@ pub const fn default_true() -> bool {
 }
 pub const fn default_false() -> bool {
     false
+}
+
+pub const fn default_zero() -> u64 {
+    0
+}
+
+pub const fn default_enabled() -> BoolOr<u64> {
+    BoolOr::Value(0)
 }
 
 #[cfg(test)]

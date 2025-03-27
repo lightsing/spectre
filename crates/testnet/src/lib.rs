@@ -1,12 +1,13 @@
 #[macro_use]
 extern crate tracing;
 
-use alloy_genesis::CliqueConfig;
-pub use alloy_genesis::Genesis;
-pub use alloy_provider::Provider;
-use alloy_provider::{IpcConnect, ProviderBuilder, RootProvider};
-pub use alloy_signer::k256::ecdsa::SigningKey;
-use alloy_signer::utils::secret_key_to_address;
+use alloy_genesis::{ChainConfig, CliqueConfig, Genesis, GenesisAccount};
+use alloy_provider::{IpcConnect, Provider, ProviderBuilder, RootProvider};
+use alloy_serde::WithOtherFields;
+use alloy_signer::{
+    k256::{ecdsa::SigningKey, elliptic_curve::rand_core::CryptoRngCore},
+    utils::secret_key_to_address,
+};
 use rand::{SeedableRng, rngs::StdRng};
 use sbv_primitives::types::Network;
 use std::{fmt::Debug, fs::File, io, path::PathBuf, sync::Arc};
@@ -42,16 +43,16 @@ pub enum TestNetBuilderError {
 
 /// Test net builder.
 #[derive(Default)]
-pub struct TestNetBuilder {
-    genesis: Option<Genesis>,
+pub struct TestNetBuilder<'a> {
+    genesis: Option<WithOtherFields<Genesis>>,
     signing_key: Option<SigningKey>,
     geth_path: Option<PathBuf>,
-    random_seed: Option<u64>,
+    rng: Option<&'a mut StdRng>,
 }
 
-impl TestNetBuilder {
+impl<'a> TestNetBuilder<'a> {
     /// Set the genesis configuration.
-    pub fn genesis(mut self, genesis: Genesis) -> Self {
+    pub fn genesis(mut self, genesis: WithOtherFields<Genesis>) -> Self {
         self.genesis = Some(genesis);
         self
     }
@@ -69,8 +70,8 @@ impl TestNetBuilder {
     }
 
     /// Optional, set the random seed for deterministic behavior.
-    pub fn random_seed(mut self, random_seed: u64) -> Self {
-        self.random_seed = Some(random_seed);
+    pub fn rng(mut self, rng: &'a mut StdRng) -> Self {
+        self.rng = Some(rng);
         self
     }
 
@@ -79,10 +80,10 @@ impl TestNetBuilder {
     pub async fn build(self) -> Result<TestNetProvider, TestNetBuilderError> {
         use TestNetBuilderError::*;
         // for deterministic tests
-        let mut rng = if let Some(random_seed) = self.random_seed {
-            StdRng::seed_from_u64(random_seed)
+        let mut rng = if let Some(rng) = self.rng {
+            rng
         } else {
-            StdRng::from_entropy()
+            &mut StdRng::from_entropy()
         };
 
         let geth_path = self.geth_path.ok_or(GethPathNotSet)?;
@@ -117,6 +118,7 @@ impl TestNetBuilder {
         trace!(password_file = ?password_file);
 
         // write genesis.json
+        debug!("{}", serde_json::to_string_pretty(&genesis).unwrap());
         serde_json::to_writer_pretty(
             File::create(geth_data_dir.join("genesis.json")).map_err(FailedToWriteFile)?,
             &genesis,
@@ -160,7 +162,15 @@ impl TestNetBuilder {
                 "--nodiscover",
                 "--nat=none",
                 "--syncmode=full",
-                "--verbosity=3",
+                "--verbosity=5",
+                "--txpool.globalqueue=4096",
+                "--txpool.globalslots=40960",
+                "--txpool.pricelimit=48700001",
+                "--txpool.nolocals",
+                "--miner.gaslimit=10000000",
+                "--miner.gasprice=48700001",
+                "--rpc.gascap=0",
+                "--gpo.ignoreprice=1",
                 // "--http",
                 // "--http.port=0",
                 // "--http.addr=127.0.0.1",
@@ -184,20 +194,24 @@ impl TestNetBuilder {
                 FailedInit
             })?;
 
-        let mut stderr = child.stderr.take().unwrap();
         {
-            let mut stderr = BufReader::new(&mut stderr).lines();
+            let stderr = child.stderr.take().unwrap();
+            let mut stderr = BufReader::new(stderr).lines();
             loop {
                 let Ok(Some(line)) = stderr.next_line().await else {
                     return Err(FailedInit);
                 };
-                debug!("{}", line);
+                debug!(target: "geth", "{}", line);
                 if line.contains("IPC endpoint opened") {
                     break;
                 }
             }
+            tokio::spawn(async move {
+                while let Ok(Some(line)) = stderr.next_line().await {
+                    debug!(target: "geth", "{}", line);
+                }
+            })
         };
-        child.stderr = Some(stderr);
 
         let ipc = IpcConnect::new(geth_data_dir.join("geth.ipc"));
         let inner = ProviderBuilder::<_, _, Network>::default()
@@ -238,35 +252,5 @@ impl Debug for TestNetProvider {
 impl Provider<Network> for TestNetProvider {
     fn root(&self) -> &RootProvider<Network> {
         &self.0.inner
-    }
-}
-
-#[cfg(test)]
-#[ctor::ctor]
-fn init() {
-    use tracing_subscriber::EnvFilter;
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("trace")),
-        )
-        .init();
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test() {
-        let builder = TestNetBuilder {
-            genesis: Some(Genesis::default()),
-            signing_key: None,
-            geth_path: Some(PathBuf::from(
-                "/Users/hhq/workspace/go-ethereum/build/bin/geth",
-            )),
-            random_seed: None,
-        };
-        let provider = builder.build().await.unwrap();
-        println!("{:?}", provider);
     }
 }

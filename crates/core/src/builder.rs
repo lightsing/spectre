@@ -1,32 +1,63 @@
-use crate::{core::*, utils::*};
-use alloy_consensus::{TxEip1559, TxEip2930, TxLegacy};
-use alloy_eips::eip2930::{AccessList, AccessListItem};
-use alloy_network::TxSignerSync;
-use alloy_primitives::hex::FromHex;
-use alloy_primitives::{
-    Address, BlockHash, BlockNumber, BlockTimestamp, Bytes, ChainId, TxKind, B256, U256, U64,
-};
+use crate::{Spectre, utils::*};
+use alloy_consensus::{TxEip1559, TxEip2930, TxLegacy, TxType};
+use alloy_genesis::{ChainConfig, Genesis, GenesisAccount};
+use alloy_primitives::{Address, B256, Bytes, ChainId, TxKind, U256};
+use alloy_rpc_types_eth::{AccessList, BlobTransactionSidecar, TransactionInput};
+use alloy_serde::{OtherFields, WithOtherFields};
 use alloy_signer_local::PrivateKeySigner;
-use rand::{rngs::StdRng, SeedableRng};
+use rand::{SeedableRng, rngs::StdRng};
 use serde::Deserialize;
-use std::collections::{BTreeMap, HashMap};
-use std::time;
+use serde_json::json;
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::PathBuf,
+    str::FromStr,
+    time,
+};
+
+#[cfg(not(feature = "scroll"))]
+use alloy_consensus::{TxEip4844Variant, TxEnvelope, TypedTransaction};
+#[cfg(feature = "scroll")]
+use scroll_alloy_consensus::{
+    ScrollTxEnvelope as TxEnvelope, ScrollTypedTransaction as TypedTransaction,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum BuilderError {
-    #[error("Invalid secret of account#{idx}")]
+    // wallet errors
+    #[error("Invalid secret of wallet#{idx}")]
     InvalidSecret { idx: usize },
-    #[error("Cannot compile code of account#{idx}({address:?}): {error:?}")]
+
+    // alloc errors
+    #[error("Invalid address of alloc#{idx}")]
+    InvalidAddress { idx: usize },
+    #[error("alloc#{idx}: wallet not found: {name}")]
+    AllocWalletNotFound { idx: usize, name: String },
+    #[error("alloc#{idx}: Neither balance or defaults is set")]
+    BalanceNotSet { idx: usize },
+    #[error("cannot compile code of alloc#{idx}({address:?}): {error:?}")]
     CompileError {
         idx: usize,
         address: Address,
         error: CompileError,
     },
-    #[error("Transaction#{idx}: Account not found: {address:?}")]
-    AccountNotFound { idx: usize, address: AddressOrAlias },
-    #[error("Transaction#{idx}: Both gas price and default are not set")]
+
+    #[error("at least one transaction is required")]
+    AtLeastOneTransaction,
+    #[error("transaction#{idx}: unexpected tx type {tx_type}")]
+    UnexpectedTxType { idx: usize, tx_type: u8 },
+    #[error("transaction#{idx}: access list not set for eip2930 or eip1559 tx")]
+    AccessListNotSet { idx: usize },
+    #[error("transaction#{idx}: Account not found: {name}")]
+    TxAccountNotFound { idx: usize, name: String },
+
+    #[error("transaction#{idx}: Both gas price and default are not set")]
     GasPriceNotSet { idx: usize },
-    #[error("Transaction#{idx}: Both gas limit and default are not set")]
+    #[error("transaction#{idx}: Both max fee per gas and default are not set")]
+    MaxFeePerGasNotSet { idx: usize },
+    #[error("transaction#{idx}: Both max priority fee per gas and default are not set")]
+    MaxPriorityFeePerGasNotSet { idx: usize },
+    #[error("transaction#{idx}: Both gas limit and default are not set")]
     GasLimitNotSet { idx: usize },
 }
 
@@ -36,64 +67,134 @@ pub struct SpectreBuilder {
     #[serde(default)]
     pub system: SystemBuilder,
     #[serde(default)]
-    pub block: BlockBuilder,
+    pub defaults: DefaultsBuilder,
     #[serde(default)]
-    pub accounts: Vec<AccountBuilder>,
+    pub genesis: GenesisBuilder,
+    #[serde(default)]
+    pub chain: ChainConfigBuilder,
+    #[serde(default)]
+    pub alloc: Vec<AllocBuilder>,
+    #[serde(default)]
+    pub wallet: Vec<WalletBuilder>,
     #[serde(default)]
     pub transactions: Vec<TransactionBuilder>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SystemBuilder {
     #[serde(default)]
     pub random_seed: Option<u64>,
-    #[serde(default = "default_chain_id")]
-    pub chain_id: ChainId,
     #[serde(default)]
-    pub l1_queue_index: u64,
-    #[serde(default)]
-    pub history_hashes: Vec<BlockHash>,
-    #[serde(default)]
-    pub default_balance: Option<Ether>,
-    #[serde(default)]
-    pub default_gas_price: Option<Ether>,
-    #[serde(default)]
-    pub default_gas_limit: Option<u64>,
+    pub geth_path: Option<PathBuf>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct BlockBuilder {
+pub struct DefaultsBuilder {
     #[serde(default)]
-    pub coinbase: Address,
-    #[serde(default = "default_block_number")]
-    pub number: BlockNumber,
-    #[serde(default = "default_timestamp")]
-    pub timestamp: BlockTimestamp,
-    #[serde(default = "default_gas")]
+    pub account_balance: Option<Ether>,
+    #[serde(default)]
+    pub tx_gas_price: Option<Ether>,
+    #[serde(default)]
+    pub tx_max_fee_per_gas: Option<Ether>,
+    #[serde(default)]
+    pub tx_max_priority_fee_per_gas: Option<Ether>,
+    #[serde(default)]
+    pub tx_gas_limit: Option<u64>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct GenesisBuilder {
+    #[serde(default = "default_zero")]
+    pub nonce: u64,
+    #[serde(default = "default_now")]
+    pub timestamp: u64,
+    #[serde(default = "default_block_gas_limit")]
     pub gas_limit: u64,
-    #[serde(default = "default_base_fee")]
-    pub base_fee: Ether,
     #[serde(default)]
     pub difficulty: U256,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-pub enum AccountBuilder {
-    Wallet(AddressWalletBuilder),
-    Address(AddressAccountBuilder),
+    #[serde(default)]
+    pub mix_hash: B256,
+    #[serde(default)]
+    pub coinbase: Address,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct AddressAccountBuilder {
-    pub address: Address,
+pub struct ChainConfigBuilder {
+    #[serde(default = "default_chain_id")]
+    pub chain_id: u64,
+
+    #[serde(default = "default_enabled")]
+    pub homestead_block: BoolOr<u64>,
+    #[serde(default = "default_enabled")]
+    pub dao_fork_block: BoolOr<u64>,
+    #[serde(default = "default_true")]
+    pub dao_fork_support: bool,
+    #[serde(default = "default_enabled")]
+    pub eip150_block: BoolOr<u64>,
+    #[serde(default = "default_enabled")]
+    pub eip155_block: BoolOr<u64>,
+    #[serde(default = "default_enabled")]
+    pub eip158_block: BoolOr<u64>,
+    #[serde(default = "default_enabled")]
+    pub byzantium_block: BoolOr<u64>,
+    #[serde(default = "default_enabled")]
+    pub constantinople_block: BoolOr<u64>,
+    #[serde(default = "default_enabled")]
+    pub petersburg_block: BoolOr<u64>,
+    #[serde(default = "default_enabled")]
+    pub istanbul_block: BoolOr<u64>,
+    #[serde(default = "default_enabled")]
+    pub muir_glacier_block: BoolOr<u64>,
+    #[serde(default = "default_enabled")]
+    pub berlin_block: BoolOr<u64>,
+    #[serde(default = "default_enabled")]
+    pub london_block: BoolOr<u64>,
+    #[serde(default = "default_enabled")]
+    pub arrow_glacier_block: BoolOr<u64>,
+    #[serde(default = "default_enabled")]
+    pub gray_glacier_block: BoolOr<u64>,
+    #[serde(default = "default_enabled")]
+    pub merge_netsplit_block: BoolOr<u64>,
+    #[serde(default = "default_enabled")]
+    pub shanghai_time: BoolOr<u64>,
+
+    #[cfg(feature = "scroll")]
+    #[serde(default = "default_enabled")]
+    pub curie_block: BoolOr<u64>,
+    #[cfg(feature = "scroll")]
+    #[serde(default = "default_enabled")]
+    pub darwin_time: BoolOr<u64>,
+    #[cfg(feature = "scroll")]
+    #[serde(default = "default_enabled")]
+    pub darwinv2_time: BoolOr<u64>,
+    #[cfg(feature = "scroll")]
+    #[serde(default = "default_enabled")]
+    pub euclid_time: BoolOr<u64>,
+    #[cfg(feature = "scroll")]
+    #[serde(default = "default_enabled")]
+    pub euclidv2_time: BoolOr<u64>,
+
+    #[cfg_attr(feature = "scroll", serde(default))]
+    #[cfg_attr(not(feature = "scroll"), serde(default = "default_enabled"))]
+    pub cancun_time: BoolOr<u64>,
+    #[cfg_attr(feature = "scroll", serde(default))]
+    #[cfg_attr(not(feature = "scroll"), serde(default = "default_enabled"))]
+    pub prague_time: BoolOr<u64>,
+    #[cfg_attr(feature = "scroll", serde(default))]
+    #[cfg_attr(not(feature = "scroll"), serde(default = "default_enabled"))]
+    pub osaka_time: BoolOr<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct AllocBuilder {
+    pub address: String,
     #[serde(default)]
-    pub alias: Option<String>,
-    #[serde(default)]
-    pub nonce: u64,
+    pub nonce: Option<u64>,
     #[serde(default)]
     pub balance: Option<Ether>,
     #[serde(default)]
@@ -104,455 +205,385 @@ pub struct AddressAccountBuilder {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct AddressWalletBuilder {
-    #[serde(rename = "wallet")]
-    pub _marker: bool,
-    #[serde(default)]
-    pub alias: Option<String>,
-    #[serde(default)]
-    pub nonce: u64,
-    #[serde(default)]
-    pub balance: Option<Ether>,
+pub struct WalletBuilder {
+    pub name: String,
     #[serde(default)]
     pub secret: Option<B256>,
-    #[serde(default)]
-    pub storage: BTreeMap<U256, U256>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-pub enum TransactionBuilder {
-    Eip155(LegacyTransactionBuilder),
-    Eip1559(Eip1559TransactionBuilder),
-    Eip2930(Eip2930TransactionBuilder),
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct LegacyTransactionBuilder {
-    pub from: AddressOrAlias,
+pub struct TransactionBuilder {
+    #[serde(rename = "type")]
     #[serde(default)]
-    pub to: Option<AddressOrAlias>,
+    pub transaction_type: u8,
+    pub from: String,
+    #[serde(default)]
+    pub to: Option<String>,
     #[serde(default)]
     pub gas_price: Option<Ether>,
     #[serde(default)]
-    pub gas_limit: Option<u64>,
+    pub max_fee_per_gas: Option<Ether>,
     #[serde(default)]
-    pub value: Ether,
-    #[serde(default)]
-    pub input: Bytes,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct Eip1559TransactionBuilder {
-    pub from: AddressOrAlias,
-    #[serde(default)]
-    pub to: Option<AddressOrAlias>,
-    /// This is also known as `GasFeeCap`
-    pub max_fee_per_gas: Ether,
-    /// This is also known as `GasTipCap`
-    pub max_priority_fee_per_gas: Ether,
+    pub max_priority_fee_per_gas: Option<Ether>,
     #[serde(default)]
     pub gas_limit: Option<u64>,
     #[serde(default)]
-    pub value: Ether,
+    pub value: Option<Ether>,
     #[serde(default)]
-    pub access_list: HashMap<Address, Vec<B256>>,
+    pub input: Option<Bytes>,
     #[serde(default)]
-    pub input: Bytes,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct Eip2930TransactionBuilder {
-    pub from: AddressOrAlias,
-    #[serde(default)]
-    pub to: Option<AddressOrAlias>,
-    #[serde(default)]
-    pub gas_price: Option<Ether>,
-    #[serde(default)]
-    pub gas_limit: Option<u64>,
-    #[serde(default)]
-    pub value: Ether,
-    #[serde(default)]
-    pub access_list: HashMap<Address, Vec<B256>>,
-    #[serde(default)]
-    pub input: Bytes,
+    pub access_list: Option<AccessList>,
 }
 
 impl SpectreBuilder {
     pub fn build(self) -> Result<Spectre, BuilderError> {
-        let mut system = self.system.build();
-        let block = self.block.build();
-        let mut accounts = Accounts::build_from(&mut system, self.accounts)?;
+        // for deterministic tests
+        let mut rng = if let Some(random_seed) = self.system.random_seed {
+            StdRng::seed_from_u64(random_seed)
+        } else {
+            StdRng::from_entropy()
+        };
+
+        let wallets_by_name = self
+            .wallet
+            .into_iter()
+            .enumerate()
+            .map(|(idx, wallet)| {
+                if let Some(secret) = wallet.secret {
+                    PrivateKeySigner::from_bytes(&secret)
+                        .map_err(|_| BuilderError::InvalidSecret { idx })
+                } else {
+                    Ok(PrivateKeySigner::random_with(&mut rng))
+                }
+                .map(|signer| (wallet.name, signer))
+            })
+            .collect::<Result<HashMap<String, PrivateKeySigner>, _>>()?;
+        let wallets = wallets_by_name
+            .iter()
+            .map(|(_, wallet)| (wallet.address(), wallet.clone()))
+            .collect::<HashMap<Address, PrivateKeySigner>>();
+
+        let alloc = self
+            .alloc
+            .into_iter()
+            .enumerate()
+            .map(|(idx, alloc)| alloc.build_with(idx, &wallets_by_name, &self.defaults))
+            .collect::<Result<BTreeMap<Address, GenesisAccount>, _>>()?;
+
+        let chain_config = self.chain.build();
+        let genesis = self.genesis.build_with(chain_config, alloc);
+
+        if self.transactions.is_empty() {
+            return Err(BuilderError::AtLeastOneTransaction);
+        }
         let transactions = self
             .transactions
             .into_iter()
             .enumerate()
-            .map(|(idx, builder)| builder.build(idx, &system, &mut accounts))
+            .map(|(idx, transaction)| {
+                transaction.build_with(idx, &genesis, &wallets_by_name, &self.defaults)
+            })
             .collect::<Result<Vec<_>, _>>()?;
+
         Ok(Spectre {
-            system,
-            block,
-            accounts,
+            rng,
+            geth_path: self
+                .system
+                .geth_path
+                .unwrap_or_else(|| PathBuf::from("/usr/bin/geth")),
+            genesis,
+            wallets,
             transactions,
         })
     }
 }
 
-impl SystemBuilder {
-    fn build(self) -> SystemConfig {
-        SystemConfig {
-            rng: self
-                .random_seed
-                .map(StdRng::seed_from_u64)
-                .unwrap_or_else(StdRng::from_entropy),
-            chain_id: self.chain_id,
-            l1_queue_index: self.l1_queue_index,
-            history_hashes: self.history_hashes,
-            default_balance: self.default_balance,
-            default_gas_price: self.default_gas_price,
-            default_gas_limit: self.default_gas_limit,
-            logger: LoggerConfig::default(),
-        }
-    }
-}
-
-impl BlockBuilder {
-    fn build(self) -> Block {
-        Block {
-            coinbase: self.coinbase,
-            timestamp: U64::from(self.timestamp),
-            number: U256::from(self.number),
+impl GenesisBuilder {
+    fn build_with(
+        self,
+        chain_config: ChainConfig,
+        alloc: BTreeMap<Address, GenesisAccount>,
+    ) -> WithOtherFields<Genesis> {
+        let genesis = Genesis {
+            config: chain_config,
+            nonce: self.nonce,
+            timestamp: self.timestamp,
+            extra_data: Default::default(),
+            gas_limit: self.gas_limit,
             difficulty: self.difficulty,
-            gas_limit: U256::from(self.gas_limit),
-            base_fee: self.base_fee.0,
+            mix_hash: self.mix_hash,
+            coinbase: self.coinbase,
+            alloc,
+            ..Default::default()
+        };
+        #[allow(unused_mut)]
+        let mut genesis = WithOtherFields::new(genesis);
+
+        #[cfg(feature = "scroll")]
+        {
+            genesis.other.insert(
+                "scroll".to_string(),
+                json!({
+                    "useZktrie": false,
+                }),
+            );
+        }
+
+        genesis
+    }
+}
+
+impl ChainConfigBuilder {
+    fn build(self) -> ChainConfig {
+        #[allow(unused_mut)]
+        let mut extra_fields = OtherFields::default();
+        #[cfg(feature = "scroll")]
+        {
+            if let Some(curie_block) = self.curie_block.into_option() {
+                extra_fields.insert("curieBlock".to_string(), curie_block.into());
+            }
+            if let Some(darwin_time) = self.darwin_time.into_option() {
+                extra_fields.insert("darwinTime".to_string(), darwin_time.into());
+            }
+            if let Some(darwinv2_time) = self.darwinv2_time.into_option() {
+                extra_fields.insert("darwinv2Time".to_string(), darwinv2_time.into());
+            }
+            if let Some(euclid_time) = self.euclid_time.into_option() {
+                extra_fields.insert("euclidTime".to_string(), euclid_time.into());
+            }
+            if let Some(euclidv2_time) = self.euclidv2_time.into_option() {
+                extra_fields.insert("euclidv2Time".to_string(), euclidv2_time.into());
+            }
+        };
+
+        ChainConfig {
+            chain_id: self.chain_id,
+            homestead_block: self.homestead_block.into_option(),
+            dao_fork_block: self.dao_fork_block.into_option(),
+            dao_fork_support: self.dao_fork_support,
+            eip150_block: self.eip150_block.into_option(),
+            eip155_block: self.eip155_block.into_option(),
+            eip158_block: self.eip158_block.into_option(),
+            byzantium_block: self.byzantium_block.into_option(),
+            constantinople_block: self.constantinople_block.into_option(),
+            petersburg_block: self.petersburg_block.into_option(),
+            istanbul_block: self.istanbul_block.into_option(),
+            muir_glacier_block: self.muir_glacier_block.into_option(),
+            berlin_block: self.berlin_block.into_option(),
+            london_block: self.london_block.into_option(),
+            arrow_glacier_block: self.arrow_glacier_block.into_option(),
+            gray_glacier_block: self.gray_glacier_block.into_option(),
+            merge_netsplit_block: self.merge_netsplit_block.into_option(),
+            shanghai_time: self.shanghai_time.into_option(),
+            cancun_time: self.cancun_time.into_option(),
+            prague_time: self.prague_time.into_option(),
+            osaka_time: self.osaka_time.into_option(),
+            terminal_total_difficulty: None,
+            terminal_total_difficulty_passed: false,
+            ethash: None,
+            clique: None,
+            parlia: None,
+            extra_fields,
+            deposit_contract_address: None,
+            blob_schedule: Default::default(),
         }
     }
 }
 
-impl Accounts {
-    fn build_from(
-        system: &mut SystemConfig,
-        builders: Vec<AccountBuilder>,
-    ) -> Result<Self, BuilderError> {
-        let mut accounts = BTreeMap::new();
-        let mut nonces = HashMap::new();
-        let mut wallets = HashMap::new();
-        let mut aliases = HashMap::new();
-        for (idx, builder) in builders.into_iter().enumerate() {
-            match builder {
-                AccountBuilder::Wallet(wallet) => {
-                    let signer = match wallet.secret {
-                        Some(secret) => PrivateKeySigner::from_bytes(&secret)
-                            .map_err(|_| BuilderError::InvalidSecret { idx })?,
-                        None => PrivateKeySigner::random_with(&mut system.rng),
-                    };
-                    let address = signer.address();
-                    if let Some(alias) = wallet.alias {
-                        aliases.insert(alias, address);
-                    }
-                    wallets.insert(address, signer);
-                    let account = Account {
-                        address,
-                        nonce: U256::from(wallet.nonce),
-                        balance: wallet
-                            .balance
-                            .or(system.default_balance)
-                            .unwrap_or_default()
-                            .0,
-                        code: Bytes::default(),
-                        storage: wallet
-                            .storage
-                            .into_iter()
-                            .map(|(k, v)| (k.to_be_bytes().into(), v.to_be_bytes().into()))
-                            .collect(),
-                    };
-                    nonces.insert(address, wallet.nonce);
-                    accounts.insert(address, account);
-                }
-                AccountBuilder::Address(account) => {
-                    let address = account.address;
-                    if let Some(alias) = account.alias {
-                        aliases.insert(alias, address);
-                    }
-                    let code = account
-                        .code
-                        .map(|c| Bytes::from_hex(&c).or_else(|_| compile_mnemonic(&c)))
-                        .transpose()
-                        .map_err(|error| BuilderError::CompileError {
-                            idx,
-                            address,
-                            error,
-                        })?
-                        .unwrap_or_default();
-                    let account = Account {
-                        address,
-                        nonce: U256::from(account.nonce),
-                        balance: account
-                            .balance
-                            .or(system.default_balance)
-                            .unwrap_or_default()
-                            .0,
-                        code,
-                        storage: account
-                            .storage
-                            .into_iter()
-                            .map(|(k, v)| (k.to_be_bytes().into(), v.to_be_bytes().into()))
-                            .collect(),
-                    };
-                    accounts.insert(address, account);
-                }
-            }
-        }
+impl AllocBuilder {
+    fn build_with(
+        self,
+        idx: usize,
+        wallets: &HashMap<String, PrivateKeySigner>,
+        defaults: &DefaultsBuilder,
+    ) -> Result<(Address, GenesisAccount), BuilderError> {
+        let address =
+            resolve_address(&self.address, wallets).ok_or(BuilderError::AllocWalletNotFound {
+                idx,
+                name: self.address.clone(),
+            })?;
 
-        Ok(Accounts {
-            accounts,
-            nonces,
-            wallets,
-            aliases,
-        })
+        let code = match self.code {
+            Some(s) => Some(
+                Bytes::from_str(&s)
+                    .or_else(|_| compile_mnemonic(&s))
+                    .map_err(|e| BuilderError::CompileError {
+                        idx,
+                        address,
+                        error: e,
+                    })?,
+            ),
+            None => None,
+        };
+
+        let account = GenesisAccount {
+            nonce: self.nonce,
+            balance: self
+                .balance
+                .or_else(|| defaults.account_balance)
+                .ok_or(BuilderError::BalanceNotSet { idx })?
+                .0,
+            code,
+            storage: Some(
+                self.storage
+                    .into_iter()
+                    .map(|(k, v)| (B256::from(k.to_be_bytes()), B256::from(v.to_be_bytes())))
+                    .collect(),
+            ),
+            private_key: None,
+        };
+
+        Ok((address, account))
     }
 }
 
 impl TransactionBuilder {
-    fn build(
+    fn build_with(
         self,
         idx: usize,
-        system: &SystemConfig,
-        accounts: &mut Accounts,
-    ) -> Result<Transaction, BuilderError> {
-        match self {
-            TransactionBuilder::Eip155(builder) => builder.build(idx, system, accounts),
-            TransactionBuilder::Eip1559(builder) => builder.build(idx, system, accounts),
-            TransactionBuilder::Eip2930(builder) => builder.build(idx, system, accounts),
-        }
+        genesis: &WithOtherFields<Genesis>,
+        wallets: &HashMap<String, PrivateKeySigner>,
+        defaults: &DefaultsBuilder,
+    ) -> Result<(Address, TypedTransaction), BuilderError> {
+        let tx_type = TxType::try_from(self.transaction_type).map_err(|_| {
+            BuilderError::UnexpectedTxType {
+                idx,
+                tx_type: self.transaction_type,
+            }
+        })?;
+
+        let chain_id = genesis.config.chain_id;
+
+        let from = resolve_address(&self.from, wallets).ok_or(BuilderError::TxAccountNotFound {
+            idx,
+            name: self.from.clone(),
+        })?;
+        let to = match self.to {
+            Some(ref to) => Some(resolve_address(to, wallets).ok_or(
+                BuilderError::TxAccountNotFound {
+                    idx,
+                    name: to.clone(),
+                },
+            )?),
+            None => None,
+        };
+
+        let tx = match tx_type {
+            TxType::Legacy => {
+                let tx = TxLegacy {
+                    chain_id: Some(chain_id),
+                    nonce: 0,
+                    gas_price: gas_price(idx, self.gas_price, defaults)?.to(),
+                    gas_limit: gas_limit(idx, self.gas_limit, defaults)?,
+                    to: tx_kind(to),
+                    value: self.value.unwrap_or_default().0,
+                    input: self.input.unwrap_or_default(),
+                };
+                TypedTransaction::Legacy(tx)
+            }
+            TxType::Eip2930 => {
+                let tx = TxEip2930 {
+                    chain_id,
+                    nonce: 0,
+                    gas_price: gas_price(idx, self.gas_price, defaults)?.to(),
+                    gas_limit: gas_limit(idx, self.gas_limit, defaults)?,
+                    to: tx_kind(to),
+                    value: self.value.unwrap_or_default().0,
+                    input: self.input.unwrap_or_default(),
+                    access_list: self
+                        .access_list
+                        .ok_or(BuilderError::AccessListNotSet { idx })?,
+                };
+                TypedTransaction::Eip2930(tx)
+            }
+            TxType::Eip1559 => {
+                let tx = TxEip1559 {
+                    chain_id,
+                    nonce: 0,
+                    gas_limit: gas_limit(idx, self.gas_limit, defaults)?,
+                    max_fee_per_gas: max_fee_per_gas(idx, self.max_fee_per_gas, defaults)?.to(),
+                    max_priority_fee_per_gas: max_priority_fee_per_gas(
+                        idx,
+                        self.max_priority_fee_per_gas,
+                        defaults,
+                    )?
+                    .to(),
+                    to: tx_kind(to),
+                    value: self.value.unwrap_or_default().0,
+                    access_list: self
+                        .access_list
+                        .ok_or(BuilderError::AccessListNotSet { idx })?,
+                    input: self.input.unwrap_or_default(),
+                };
+                TypedTransaction::Eip1559(tx)
+            }
+            _ => unimplemented!(),
+        };
+
+        Ok((from, tx))
     }
 }
 
-impl LegacyTransactionBuilder {
-    fn build(
-        self,
-        idx: usize,
-        system: &SystemConfig,
-        accounts: &mut Accounts,
-    ) -> Result<Transaction, BuilderError> {
-        let from_address =
-            accounts
-                .resolve_address(&self.from)
-                .ok_or_else(|| BuilderError::AccountNotFound {
-                    idx,
-                    address: self.from.clone(),
-                })?;
-        let from_nonce = accounts.fetch_add_nonce(&from_address).unwrap();
-        let to_address = self
-            .to
-            .map(|to| {
-                accounts
-                    .resolve_address(&to)
-                    .ok_or_else(|| BuilderError::AccountNotFound { idx, address: to })
-            })
-            .transpose()?;
-        let signer =
-            accounts
-                .resolve_wallet(&self.from)
-                .ok_or_else(|| BuilderError::AccountNotFound {
-                    idx: 0,
-                    address: self.from,
-                })?;
-        let gas_price = gas_price(idx, self.gas_price, system)?;
-        let mut tx = TxLegacy {
-            chain_id: Some(system.chain_id),
-            nonce: from_nonce,
-            gas_price: gas_price.to(),
-            gas_limit: gas_limit(idx, self.gas_limit, system)?,
-            to: tx_kind(to_address),
-            value: self.value.0,
-            input: self.input.clone(),
-        };
-        let sig = signer.sign_transaction_sync(&mut tx).unwrap();
-        Ok(Transaction {
-            from: from_address,
-            to: to_address,
-            nonce: U64::from(tx.nonce),
-            value: tx.value,
-            gas_limit: U256::from(tx.gas_limit),
-            gas_price: Some(gas_price),
-            gas_fee_cap: None,
-            gas_tip_cap: None,
-            call_data: self.input.clone(),
-            access_list: Default::default(),
-            tx_type: "Eip155",
-            v: sig.v().to_u64(),
-            r: sig.r(),
-            s: sig.s(),
-        })
-    }
-}
-
-impl Eip1559TransactionBuilder {
-    fn build(
-        self,
-        idx: usize,
-        system: &SystemConfig,
-        accounts: &mut Accounts,
-    ) -> Result<Transaction, BuilderError> {
-        let from_address =
-            accounts
-                .resolve_address(&self.from)
-                .ok_or_else(|| BuilderError::AccountNotFound {
-                    idx,
-                    address: self.from.clone(),
-                })?;
-        let from_nonce = accounts.fetch_add_nonce(&from_address).unwrap();
-        let to_address = self
-            .to
-            .map(|to| {
-                accounts
-                    .resolve_address(&to)
-                    .ok_or_else(|| BuilderError::AccountNotFound { idx, address: to })
-            })
-            .transpose()?;
-        let signer =
-            accounts
-                .resolve_wallet(&self.from)
-                .ok_or_else(|| BuilderError::AccountNotFound {
-                    idx: 0,
-                    address: self.from,
-                })?;
-        let access_list = AccessList::from(
-            self.access_list
-                .into_iter()
-                .map(|(address, storage_keys)| AccessListItem {
-                    address,
-                    storage_keys,
-                })
-                .collect::<Vec<_>>(),
-        );
-        let mut tx = TxEip1559 {
-            chain_id: system.chain_id,
-            nonce: from_nonce,
-            gas_limit: gas_limit(idx, self.gas_limit, system)?,
-            max_fee_per_gas: self.max_fee_per_gas.0.to(),
-            max_priority_fee_per_gas: self.max_priority_fee_per_gas.0.to(),
-            to: tx_kind(to_address),
-            value: self.value.0,
-            access_list: access_list.clone(),
-            input: self.input.clone(),
-        };
-        let sig = signer.sign_transaction_sync(&mut tx).unwrap();
-        Ok(Transaction {
-            from: from_address,
-            to: to_address,
-            nonce: U64::from(tx.nonce),
-            value: tx.value,
-            gas_limit: U256::from(tx.gas_limit),
-            gas_price: None,
-            gas_fee_cap: Some(self.max_fee_per_gas.0),
-            gas_tip_cap: Some(self.max_priority_fee_per_gas.0),
-            call_data: self.input,
-            access_list,
-            tx_type: "Eip1559",
-            v: sig.v().to_u64(),
-            r: sig.r(),
-            s: sig.s(),
-        })
-    }
-}
-
-impl Eip2930TransactionBuilder {
-    fn build(
-        self,
-        idx: usize,
-        system: &SystemConfig,
-        accounts: &mut Accounts,
-    ) -> Result<Transaction, BuilderError> {
-        let from_address =
-            accounts
-                .resolve_address(&self.from)
-                .ok_or_else(|| BuilderError::AccountNotFound {
-                    idx,
-                    address: self.from.clone(),
-                })?;
-        let from_nonce = accounts.fetch_add_nonce(&from_address).unwrap();
-        let to_address = self
-            .to
-            .map(|to| {
-                accounts
-                    .resolve_address(&to)
-                    .ok_or_else(|| BuilderError::AccountNotFound { idx, address: to })
-            })
-            .transpose()?;
-        let signer =
-            accounts
-                .resolve_wallet(&self.from)
-                .ok_or_else(|| BuilderError::AccountNotFound {
-                    idx: 0,
-                    address: self.from,
-                })?;
-        let gas_price = gas_price(idx, self.gas_price, system)?;
-        let access_list = AccessList::from(
-            self.access_list
-                .into_iter()
-                .map(|(address, storage_keys)| AccessListItem {
-                    address,
-                    storage_keys,
-                })
-                .collect::<Vec<_>>(),
-        );
-        let mut tx = TxEip2930 {
-            chain_id: system.chain_id,
-            nonce: from_nonce,
-            gas_price: gas_price.to(),
-            gas_limit: gas_limit(idx, self.gas_limit, system)?,
-            to: tx_kind(to_address),
-            value: self.value.0,
-            access_list: access_list.clone(),
-            input: self.input.clone(),
-        };
-        let sig = signer.sign_transaction_sync(&mut tx).unwrap();
-        Ok(Transaction {
-            from: from_address,
-            to: to_address,
-            nonce: U64::from(tx.nonce),
-            value: tx.value,
-            gas_limit: U256::from(tx.gas_limit),
-            gas_price: Some(gas_price),
-            gas_fee_cap: None,
-            gas_tip_cap: None,
-            call_data: self.input,
-            access_list,
-            tx_type: "Eip2930",
-            v: sig.v().to_u64(),
-            r: sig.r(),
-            s: sig.s(),
-        })
-    }
-}
-impl Default for SystemBuilder {
+#[cfg(feature = "scroll")]
+impl Default for ChainConfigBuilder {
     fn default() -> Self {
-        Self {
-            random_seed: None,
+        ChainConfigBuilder {
             chain_id: default_chain_id(),
-            l1_queue_index: 0,
-            history_hashes: vec![],
-            default_balance: None,
-            default_gas_price: None,
-            default_gas_limit: None,
+            homestead_block: BoolOr::Value(0),
+            dao_fork_block: BoolOr::Value(0),
+            dao_fork_support: true,
+            eip150_block: BoolOr::Value(0),
+            eip155_block: BoolOr::Value(0),
+            eip158_block: BoolOr::Value(0),
+            byzantium_block: BoolOr::Value(0),
+            constantinople_block: BoolOr::Value(0),
+            petersburg_block: BoolOr::Value(0),
+            istanbul_block: BoolOr::Value(0),
+            muir_glacier_block: BoolOr::Value(0),
+            berlin_block: BoolOr::Value(0),
+            london_block: BoolOr::Value(0),
+            arrow_glacier_block: BoolOr::Value(0),
+            gray_glacier_block: BoolOr::Value(0),
+            merge_netsplit_block: BoolOr::Value(0),
+            shanghai_time: BoolOr::Value(0),
+            curie_block: BoolOr::Value(0),
+            darwin_time: BoolOr::Value(0),
+            darwinv2_time: BoolOr::Value(0),
+            euclid_time: BoolOr::Value(0),
+            euclidv2_time: BoolOr::Value(0),
+            cancun_time: BoolOr::Bool(false),
+            prague_time: BoolOr::Bool(false),
+            osaka_time: BoolOr::Bool(false),
         }
     }
 }
 
-impl Default for BlockBuilder {
+#[cfg(not(feature = "scroll"))]
+impl Default for ChainConfigBuilder {
     fn default() -> Self {
-        Self {
-            coinbase: Address::ZERO,
-            number: default_block_number(),
-            timestamp: default_timestamp(),
-            gas_limit: default_gas(),
-            base_fee: default_base_fee(),
-            difficulty: U256::ZERO,
+        ChainConfigBuilder {
+            chain_id: default_chain_id(),
+            homestead_block: BoolOr::Value(0),
+            dao_fork_block: BoolOr::Value(0),
+            dao_fork_support: true,
+            eip150_block: BoolOr::Value(0),
+            eip155_block: BoolOr::Value(0),
+            eip158_block: BoolOr::Value(0),
+            byzantium_block: BoolOr::Value(0),
+            constantinople_block: BoolOr::Value(0),
+            petersburg_block: BoolOr::Value(0),
+            istanbul_block: BoolOr::Value(0),
+            muir_glacier_block: BoolOr::Value(0),
+            berlin_block: BoolOr::Value(0),
+            london_block: BoolOr::Value(0),
+            arrow_glacier_block: BoolOr::Value(0),
+            gray_glacier_block: BoolOr::Value(0),
+            merge_netsplit_block: BoolOr::Value(0),
+            shanghai_time: BoolOr::Value(0),
+            cancun_time: BoolOr::Value(0),
+            prague_time: BoolOr::Value(0),
+            osaka_time: BoolOr::Value(0),
         }
     }
 }
@@ -561,34 +592,71 @@ const fn default_gas() -> u64 {
     10_000_000
 }
 
-const fn default_chain_id() -> ChainId {
-    1
+const fn default_base_fee() -> Ether {
+    Ether(U256::ZERO)
 }
 
-const fn default_block_number() -> BlockNumber {
-    0xcafe
-}
-
-fn default_timestamp() -> BlockTimestamp {
+fn default_now() -> u64 {
     time::SystemTime::now()
         .duration_since(time::UNIX_EPOCH)
         .unwrap()
         .as_secs()
 }
 
-const fn default_base_fee() -> Ether {
-    Ether(U256::ZERO)
+fn default_block_gas_limit() -> u64 {
+    30_000_000
+}
+
+#[cfg(not(feature = "scroll"))]
+fn default_chain_id() -> u64 {
+    1337
+}
+#[cfg(feature = "scroll")]
+fn default_chain_id() -> u64 {
+    22222
+}
+
+fn resolve_address(address: &str, wallets: &HashMap<String, PrivateKeySigner>) -> Option<Address> {
+    if address.starts_with("0x") {
+        Address::from_str(address).ok()
+    } else {
+        wallets.get(address).map(|wallet| wallet.address())
+    }
 }
 
 #[inline]
 fn gas_price(
     idx: usize,
     gas_price: Option<Ether>,
-    system: &SystemConfig,
+    defaults: &DefaultsBuilder,
 ) -> Result<U256, BuilderError> {
     gas_price
-        .or(system.default_gas_price)
+        .or(defaults.tx_gas_price)
         .ok_or_else(|| BuilderError::GasPriceNotSet { idx })
+        .map(|price| price.0)
+}
+
+#[inline]
+fn max_fee_per_gas(
+    idx: usize,
+    max_fee_per_gas: Option<Ether>,
+    defaults: &DefaultsBuilder,
+) -> Result<U256, BuilderError> {
+    max_fee_per_gas
+        .or(defaults.tx_max_fee_per_gas)
+        .ok_or_else(|| BuilderError::MaxFeePerGasNotSet { idx })
+        .map(|price| price.0)
+}
+
+#[inline]
+fn max_priority_fee_per_gas(
+    idx: usize,
+    max_priority_fee_per_gas: Option<Ether>,
+    defaults: &DefaultsBuilder,
+) -> Result<U256, BuilderError> {
+    max_priority_fee_per_gas
+        .or(defaults.tx_max_priority_fee_per_gas)
+        .ok_or_else(|| BuilderError::MaxPriorityFeePerGasNotSet { idx })
         .map(|price| price.0)
 }
 
@@ -596,10 +664,10 @@ fn gas_price(
 fn gas_limit(
     idx: usize,
     gas_limit: Option<u64>,
-    system: &SystemConfig,
+    defaults: &DefaultsBuilder,
 ) -> Result<u64, BuilderError> {
     gas_limit
-        .or(system.default_gas_limit)
+        .or(defaults.tx_gas_limit)
         .ok_or_else(|| BuilderError::GasLimitNotSet { idx })
 }
 
@@ -615,9 +683,10 @@ fn tx_kind(to_address: Option<Address>) -> TxKind {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_de_and_trace() {
-        let config: SpectreBuilder = toml::from_str(include_str!("../example.toml")).unwrap();
-        config.build().unwrap().trace().unwrap();
+    #[tokio::test]
+    async fn test_de_and_trace() {
+        let config: SpectreBuilder = toml::from_str(include_str!("../../../example.toml")).unwrap();
+        println!("{:#?}", config);
+        config.build().unwrap().trace().await.unwrap();
     }
 }

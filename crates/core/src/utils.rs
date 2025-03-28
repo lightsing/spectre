@@ -1,10 +1,9 @@
 use alloy_primitives::{
-    Address, Bytes, U256,
+    Bytes, U256,
     bytes::{BufMut, BytesMut},
     ruint,
     utils::{ParseUnits, Unit, parse_units},
 };
-use hex::FromHexError;
 use serde::{Deserialize, Deserializer};
 use std::{
     fmt::{Debug, Formatter},
@@ -69,15 +68,16 @@ impl Debug for Ether {
             if self.0 >= *value {
                 return write!(
                     f,
-                    "{} {literal}",
+                    "{: >25} {literal: <5}",
                     ParseUnits::U256(self.0).format_units(*unit)
                 );
             }
         }
         write!(
             f,
-            "{} wei",
-            ParseUnits::U256(self.0).format_units(Unit::WEI)
+            "{: >25} {: <5}",
+            ParseUnits::U256(self.0).format_units(Unit::WEI),
+            "wei"
         )
     }
 }
@@ -266,9 +266,6 @@ pub fn compile_mnemonic(codes: &str) -> Result<Bytes, CompileError> {
 
 pub const fn default_true() -> bool {
     true
-}
-pub const fn default_false() -> bool {
-    false
 }
 
 pub const fn default_zero() -> u64 {

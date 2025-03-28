@@ -1,21 +1,21 @@
 #[macro_use]
 extern crate tracing;
 
-use alloy_genesis::{ChainConfig, CliqueConfig, Genesis, GenesisAccount};
+use alloy_genesis::{CliqueConfig, Genesis};
 use alloy_provider::{IpcConnect, Provider, ProviderBuilder, RootProvider};
-use alloy_serde::WithOtherFields;
-use alloy_signer::{
-    k256::{ecdsa::SigningKey, elliptic_curve::rand_core::CryptoRngCore},
-    utils::secret_key_to_address,
-};
+use alloy_signer::{k256::ecdsa::SigningKey, utils::secret_key_to_address};
+use alloy_transport::TransportResult;
 use rand::{SeedableRng, rngs::StdRng};
-use sbv_primitives::types::Network;
+use sbv_primitives::{Address, types::Network};
+use serde_json::json;
 use std::{fmt::Debug, fs::File, io, path::PathBuf, sync::Arc};
 use tempfile::TempDir;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::Command,
 };
+
+const MINER_PASSWORD: &str = "testnet";
 
 /// Test net builder error.
 #[derive(Debug, thiserror::Error)]
@@ -104,8 +104,8 @@ impl<'a> TestNetBuilder<'a> {
         // config clique
         let extra_data_bytes = [&[0u8; 32][..], signer_addr.as_slice(), &[0u8; 65][..]].concat();
         genesis.config.clique = Some(CliqueConfig {
-            period: Some(3),
-            epoch: Some(30000),
+            period: None,
+            epoch: None,
         });
         genesis.extra_data = extra_data_bytes.into();
 
@@ -114,34 +114,17 @@ impl<'a> TestNetBuilder<'a> {
 
         let geth_data_dir = temp_dir.path().join("data");
         let keystore_dir = geth_data_dir.join("keystore");
-        let password_file = temp_dir.path().join("password");
+        // let password_file = temp_dir.path().join("password");
         std::fs::create_dir_all(&keystore_dir).map_err(FailedToCreateTempDir)?;
         // write password
-        std::fs::write(&password_file, "testnet").map_err(FailedToWriteFile)?;
-        trace!(password_file = ?password_file);
-
-        let mut serialized = serde_json::to_value(&genesis).unwrap();
-        #[cfg(feature = "scroll")]
-        {
-            serialized
-                .get_mut("config")
-                .unwrap()
-                .as_object_mut()
-                .unwrap()
-                .insert(
-                    "scroll".to_string(),
-                    serde_json::json!({
-                        "useZktrie": false,
-                        "feeVaultAddress": "0x0000000000000000000000000000000000000000"
-                    }),
-                );
-        }
+        // std::fs::write(&password_file, "testnet").map_err(FailedToWriteFile)?;
+        // trace!(password_file = ?password_file);
 
         // write genesis.json
-        debug!("{}", serde_json::to_string_pretty(&serialized).unwrap());
+        trace!("{}", serde_json::to_string_pretty(&genesis).unwrap());
         serde_json::to_writer_pretty(
             File::create(geth_data_dir.join("genesis.json")).map_err(FailedToWriteFile)?,
-            &serialized,
+            &genesis,
         )
         .map_err(Serialization)?;
         // write keystore
@@ -149,7 +132,7 @@ impl<'a> TestNetBuilder<'a> {
             &keystore_dir,
             &mut rng,
             signing_key.to_bytes(),
-            "testnet",
+            MINER_PASSWORD,
             None,
         )
         .map_err(FailedToWriteKeystore)?;
@@ -198,14 +181,14 @@ impl<'a> TestNetBuilder<'a> {
                 // "--http.corsdomain=*",
                 // "--http.api=eth,scroll,net,web3,debug,clique",
                 // "--allow-insecure-unlock",
-                "--mine",
+                // "--mine",
             ])
             .arg("--datadir")
             .arg(&geth_data_dir)
-            .arg("--unlock")
-            .arg(signer_addr.to_string())
-            .arg("--password")
-            .arg(password_file)
+            // .arg("--unlock")
+            // .arg(signer_addr.to_string())
+            // .arg("--password")
+            // .arg(password_file)
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true)
             .spawn()
@@ -243,6 +226,7 @@ impl<'a> TestNetBuilder<'a> {
             temp_dir,
             child: Some(child),
             inner,
+            signer_addr,
         }));
         trace!(provider = ?provider);
 
@@ -258,6 +242,31 @@ struct TestNetProviderInner {
     temp_dir: TempDir,
     child: Option<tokio::process::Child>,
     inner: RootProvider<Network>,
+    signer_addr: Address,
+}
+
+impl TestNetProvider {
+    pub async fn stop_miner(&self) -> TransportResult<()> {
+        let no_params = serde_json::value::to_raw_value(&()).unwrap();
+        self.raw_request_dyn("miner_stop".into(), &no_params)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn start_miner(&self) -> TransportResult<()> {
+        let params = serde_json::value::to_raw_value(&json!([
+            self.0.signer_addr.to_string(),
+            MINER_PASSWORD,
+            0,
+        ]))
+        .unwrap();
+        self.raw_request_dyn("personal_unlockAccount".into(), &params)
+            .await?;
+        let no_params = serde_json::value::to_raw_value(&()).unwrap();
+        self.raw_request_dyn("miner_start".into(), &no_params)
+            .await?;
+        Ok(())
+    }
 }
 
 impl Debug for TestNetProvider {

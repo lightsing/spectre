@@ -7,6 +7,7 @@ mod utils;
 
 pub use builder::{BuilderError, SpectreBuilder};
 pub use core::Spectre;
+pub use sbv_primitives::types::BlockWitness;
 
 #[cfg(test)]
 #[ctor::ctor]

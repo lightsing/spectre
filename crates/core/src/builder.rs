@@ -1,13 +1,12 @@
 use crate::{Spectre, utils::*};
 use alloy_consensus::{TxEip1559, TxEip2930, TxLegacy, TxType};
 use alloy_genesis::{ChainConfig, Genesis, GenesisAccount};
-use alloy_primitives::{Address, B256, Bytes, ChainId, TxKind, U256};
-use alloy_rpc_types_eth::{AccessList, BlobTransactionSidecar, TransactionInput};
-use alloy_serde::{OtherFields, WithOtherFields};
+use alloy_primitives::{Address, B256, Bytes, TxKind, U256};
+use alloy_rpc_types_eth::AccessList;
+use alloy_serde::OtherFields;
 use alloy_signer_local::PrivateKeySigner;
 use rand::{SeedableRng, rngs::StdRng};
 use serde::Deserialize;
-use serde_json::json;
 use std::{
     collections::{BTreeMap, HashMap},
     path::PathBuf,
@@ -18,9 +17,7 @@ use std::{
 #[cfg(not(feature = "scroll"))]
 use alloy_consensus::{TxEip4844Variant, TxEnvelope, TypedTransaction};
 #[cfg(feature = "scroll")]
-use scroll_alloy_consensus::{
-    ScrollTxEnvelope as TxEnvelope, ScrollTypedTransaction as TypedTransaction,
-};
+use scroll_alloy_consensus::ScrollTypedTransaction as TypedTransaction;
 
 #[derive(Debug, thiserror::Error)]
 pub enum BuilderError {
@@ -287,7 +284,6 @@ impl SpectreBuilder {
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Spectre {
-            rng,
             geth_path: self.system.geth_path,
             genesis,
             wallets,
@@ -339,6 +335,13 @@ impl ChainConfigBuilder {
             if let Some(euclidv2_time) = self.euclidv2_time.into_option() {
                 extra_fields.insert("euclidv2Time".to_string(), euclidv2_time.into());
             }
+            extra_fields.insert(
+                "scroll".to_string(),
+                serde_json::json!({
+                    "useZktrie": false,
+                    "feeVaultAddress": "0x5300000000000000000000000000000000000005"
+                }),
+            )
         };
 
         ChainConfig {
@@ -570,14 +573,6 @@ impl Default for ChainConfigBuilder {
             osaka_time: BoolOr::Value(0),
         }
     }
-}
-
-const fn default_gas() -> u64 {
-    10_000_000
-}
-
-const fn default_base_fee() -> Ether {
-    Ether(U256::ZERO)
 }
 
 fn default_now() -> u64 {

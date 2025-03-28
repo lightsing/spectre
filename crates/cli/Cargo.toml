@@ -12,5 +12,9 @@ clap = { version = "4", features = ["derive"] }
 console = "0.15"
 serde_json = "1"
 toml = "0.8"
+tokio = { workspace = true, features = ["full"] }
 
 spectre = { path = "../core", features = ["cli"] }
+
+[features]
+scroll = ["spectre/scroll"]

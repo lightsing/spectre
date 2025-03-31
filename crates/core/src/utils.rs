@@ -1,10 +1,15 @@
-use alloy_primitives::bytes::{BufMut, BytesMut};
-use alloy_primitives::utils::{ParseUnits, Unit};
-use alloy_primitives::{utils::parse_units, Address, Bytes, U256};
-use hex::FromHexError;
+use alloy_primitives::{
+    Bytes, U256,
+    bytes::{BufMut, BytesMut},
+    ruint,
+    utils::{ParseUnits, Unit, parse_units},
+};
 use serde::{Deserialize, Deserializer};
-use std::fmt::{Debug, Formatter};
-use std::str::FromStr;
+use std::{
+    fmt::{Debug, Formatter},
+    ops::Shr,
+    str::FromStr,
+};
 
 #[derive(Default, Copy, Clone, PartialEq, Eq)]
 pub struct Ether(pub U256);
@@ -63,37 +68,39 @@ impl Debug for Ether {
             if self.0 >= *value {
                 return write!(
                     f,
-                    "{} {literal}",
+                    "{: >25} {literal: <5}",
                     ParseUnits::U256(self.0).format_units(*unit)
                 );
             }
         }
         write!(
             f,
-            "{} wei",
-            ParseUnits::U256(self.0).format_units(Unit::WEI)
+            "{: >25} {: <5}",
+            ParseUnits::U256(self.0).format_units(Unit::WEI),
+            "wei"
         )
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AddressOrAlias {
-    Address(Address),
-    Alias(String),
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum BoolOr<T> {
+    Bool(bool),
+    Value(T),
 }
 
-impl<'de> Deserialize<'de> for AddressOrAlias {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        if s.starts_with("0x") {
-            Ok(AddressOrAlias::Address(
-                Address::from_str(s.as_str()).map_err(serde::de::Error::custom)?,
-            ))
-        } else {
-            Ok(AddressOrAlias::Alias(s.to_string()))
+impl<T> Default for BoolOr<T> {
+    fn default() -> Self {
+        BoolOr::Bool(false)
+    }
+}
+
+impl<T: Default> BoolOr<T> {
+    pub fn into_option(self) -> Option<T> {
+        match self {
+            BoolOr::Bool(true) => Some(T::default()),
+            BoolOr::Value(value) => Some(value),
+            _ => None,
         }
     }
 }
@@ -104,8 +111,11 @@ pub enum CompileError {
     InvalidOpcode { opcode: String, line: usize },
     #[error("missing value for opcode {opcode} at line {line}")]
     MissingValue { opcode: String, line: usize },
-    #[error("invalid push value hex at line {line}: {error}")]
-    InvalidPushValueHex { line: usize, error: FromHexError },
+    #[error("invalid push value at line {line}: {error}")]
+    InvalidPushValue {
+        line: usize,
+        error: ruint::ParseError,
+    },
     #[error("invalid push value length at line {line}: expected {expected}, got {length}")]
     InvalidPushValueLength {
         line: usize,
@@ -118,7 +128,7 @@ pub fn compile_mnemonic(codes: &str) -> Result<Bytes, CompileError> {
     let mut code = BytesMut::new();
     for (idx, line) in codes.split('\n').enumerate() {
         let line = line.trim();
-        if line.is_empty() {
+        if line.is_empty() || line.starts_with("//") {
             continue;
         }
         let mut line = line.split_whitespace();
@@ -202,26 +212,20 @@ pub fn compile_mnemonic(codes: &str) -> Result<Bytes, CompileError> {
                     opcode: opcode.clone(),
                     line: idx,
                 })?;
-                let value = if value.starts_with("0x") {
-                    hex::decode(&value[2..])
-                } else {
-                    hex::decode(value)
-                }
-                .map_err(|e| CompileError::InvalidPushValueHex {
+                let value = U256::from_str(value).map_err(|e| CompileError::InvalidPushValue {
                     line: idx,
                     error: e,
                 })?;
-                if value.len() > n {
+                if !value.shr(8 * n).is_zero() {
+                    let length = (256 - value.leading_zeros()) / 8;
                     return Err(CompileError::InvalidPushValueLength {
                         line: idx,
                         expected: n,
-                        length: value.len(),
+                        length,
                     });
                 }
-                for _ in 0..n - value.len() {
-                    code.put_u8(0);
-                }
-                code.extend(value);
+                let value: [u8; 32] = value.to_be_bytes();
+                code.extend(&value[32 - n..]);
             }
             _ if opcode.starts_with("DUP") => {
                 let n = opcode[3..].parse::<u8>().unwrap();
@@ -263,8 +267,13 @@ pub fn compile_mnemonic(codes: &str) -> Result<Bytes, CompileError> {
 pub const fn default_true() -> bool {
     true
 }
-pub const fn default_false() -> bool {
-    false
+
+pub const fn default_zero() -> u64 {
+    0
+}
+
+pub const fn default_enabled() -> BoolOr<u64> {
+    BoolOr::Value(0)
 }
 
 #[cfg(test)]

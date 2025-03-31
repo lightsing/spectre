@@ -1,0 +1,43 @@
+[package]
+name = "spectre"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+alloy-consensus.workspace = true
+alloy-json-rpc.workspace = true
+alloy-genesis.workspace = true
+alloy-network.workspace = true
+alloy-primitives.workspace = true
+alloy-provider.workspace = true
+alloy-rpc-types-eth.workspace = true
+alloy-serde.workspace = true
+alloy-signer.workspace = true
+alloy-signer-local.workspace = true
+alloy-transport.workspace = true
+
+scroll-alloy-consensus.workspace = true
+scroll-alloy-rpc-types.workspace = true
+scroll-alloy-network.workspace = true
+
+rand.workspace = true
+serde = { version = "1.0", features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+tracing.workspace = true
+testnet = { path = "../testnet" }
+sbv-primitives.workspace = true
+sbv-utils.workspace = true
+
+console = { version = "0.15", optional = true }
+
+[dev-dependencies]
+ctor.workspace = true
+tokio = { workspace = true, features = ["rt", "macros"] }
+tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
+
+[features]
+cli = ["dep:console"]
+scroll = ["testnet/scroll", "sbv-utils/scroll"]

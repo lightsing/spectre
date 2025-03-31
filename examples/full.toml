@@ -1,0 +1,125 @@
+# default values are commented out
+[system]
+random-seed = 0xdeadbeef # set random seed for deterministic execution, omit to disable this behavior
+geth-path = "/Users/hhq/workspace/go-ethereum/build/bin/geth"
+
+[defaults]
+account-balance = "0 wei" # set account balance to 0 ether, omit to disable this behavior
+tx-gas-price = "10 Gwei" # set the default gas price used in transactions, omit to disable this behavior
+tx-max-fee-per-gas = "10 Gwei" # set the default max fee per gas used in transactions, omit to disable this behavior
+tx-priority-fee-per-gas = "1 Gwei" # set the default priority fee per gas used in transactions, omit to disable this behavior
+tx-max-priority-fee-per-gas = "10 Gwei" # set the default max priority fee per gas used in transactions, omit to disable this behavior
+tx-gas-limit = 1000000 # set the default gas limit used in transactions, omit to disable this behavior
+
+[genesis]
+# nonce = 0 # set the nonce of the genesis block, default is 0
+# timestamp = now # set the timestamp of the genesis block, default is the current time
+# gas-limit = 30000000 # set the gas limit of the genesis block, default is 30,000,000
+# difficulty = "0x1" # set the difficulty of the genesis block, default is 1
+# mix-hash = "0x0000000000000000000000000000000000000000000000000000000000000000" # set the mix hash of the genesis block, default is 0
+# coinbase = "0x0000000000000000000000000000000000000000"
+
+[chain]
+# chain-id = 22222 # set the chain id, default is 22222 for scroll
+
+# homestead-block = 0 # default enabled, pass false to disable
+# dao-fork-block = 0 # default enabled, pass false to disable
+# dao-fork-support = true # default enabled, pass false to disable
+# eip150-block = 0 # default enabled, pass false to disable
+# eip155-block = 0 # default enabled, pass false to disable
+# eip158-block = 0 # default enabled, pass false to disable
+# byzantium-block = 0 # default enabled, pass false to disable
+# constantinople-block = 0 # default enabled, pass false to disable
+# petersburg-block = 0 # default enabled, pass false to disable
+# istanbul-block = 0 # default enabled, pass false to disable
+# muir-glacier-block = 0 # default enabled, pass false to disable
+# berlin-block = 0 # default enabled, pass false to disable
+# london-block = 0 # default enabled, pass false to disable
+# arrow-glacier-block = 0 # default enabled, pass false to disable
+# gray-glacier-block = 0 # default enabled, pass false to disable
+# merge-netsplit-block = 0 # default enabled, pass false to disable
+# shanghai-time = 0 # default enabled, pass false to disable
+
+# scroll forks
+# curie-block = 0 # default enabled, pass false to disable
+# darwin-time = 0 # default enabled, pass false to disable
+# darwinv2-time = 0 # default enabled, pass false to disable
+# euclid-time = 0 # default enabled, pass false to disable
+# euclidv2-time = 0 # default enabled, pass false to disable
+
+# cancun-time = false # default disabled in scroll, pass other values to enable
+# prague-time = false # default disabled in scroll, pass other values to enable
+# osaka-time = false # default disabled in scroll, pass other values to enable
+
+[[alloc]]
+address = "alice" # use alias instead of address
+balance = "100 Ether" # set account balance to 100 ether
+
+[[alloc]]
+address = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+# write mnemonic instead of bytecode hex
+# example: ecRecover
+code = """
+PUSH2 0x1234
+PUSH1 0x80
+PUSH0
+PUSH0
+CALLDATACOPY
+
+PUSH1 32 // retSize
+PUSH1 0x80 // retOffset
+PUSH1 0x80 // argsSize
+PUSH1 0 // argsOffset
+PUSH1 1 // address
+PUSH4 0xFFFFFFFF // gas
+STATICCALL
+
+// Put the result alone on the stack
+POP
+PUSH1 0x80
+MLOAD
+"""
+
+[[alloc]]
+address = "0xdeadcafedeadcafedeadcafedeadcafedeadcafe"
+# using hex is also supported
+code = "0x0600006000396000f300"
+[alloc.storage] # set storage value for slots
+"0x0000000000000000000000000000000000000000" = "0x0000000000000000000000000000000000000001"
+
+# wallet account
+[[wallet]]
+name = "alice" # use this as alias to refer to this account
+secret = "93cb550ad61cddcd28062350644d68426473032ed256ab0f29b57d5fc652f9e4" # omit this to generate a new one on runtime
+
+[[transactions]]
+type = 0x00
+from = "alice"
+to = "0x0000000000000000000000000000000000000000"
+value = "1 Ether"
+
+[[transactions]]
+type = 0x00
+from = "alice"
+to = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+input = "0x456e9aea5e197a1f1af7a3e85a3212fa4049a3ba34c2289b4c860fc0b0c64ef3000000000000000000000000000000000000000000000000000000000000001c9242685bf161793cc25603c231bc2f568eb630ea16aa137d2664ac80388256084f8ae3bd7535248d0bd448298cc2e2071e56992d0774dc340c368ae950852ada"
+
+[[transactions]]
+type = 0x01 # EIP-2930
+from = "alice"
+to = "0x0000000000000000000000000000000000000000"
+gas-price = "50 Gwei" # override the default gas price
+[[access-list]]
+address = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+storage-keys = ["0x0000000000000000000000000000000000000000"]
+
+[[transactions]]
+type = 0x02 # EIP-1559
+from = "alice"
+to = "0x0000000000000000000000000000000000000000"
+max-fee-per-gas = "50 Gwei" # override the default max fee per gas
+priority-fee-per-gas = "5 Gwei" # override the default priority fee per gas
+max-priority-fee-per-gas = "50 Gwei" # override the default max priority fee per gas
+[[access-list]]
+address = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+storage-keys = ["0x0000000000000000000000000000000000000000"]

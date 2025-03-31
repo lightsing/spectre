@@ -8,6 +8,7 @@ account-balance = "0 wei" # set account balance to 0 ether, omit to disable this
 tx-gas-price = "10 Gwei" # set the default gas price used in transactions, omit to disable this behavior
 tx-max-fee-per-gas = "10 Gwei" # set the default max fee per gas used in transactions, omit to disable this behavior
 tx-priority-fee-per-gas = "1 Gwei" # set the default priority fee per gas used in transactions, omit to disable this behavior
+tx-max-priority-fee-per-gas = "10 Gwei" # set the default max priority fee per gas used in transactions, omit to disable this behavior
 tx-gas-limit = 1000000 # set the default gas limit used in transactions, omit to disable this behavior
 
 [genesis]
@@ -79,6 +80,13 @@ PUSH1 0x80
 MLOAD
 """
 
+[[alloc]]
+address = "0xdeadcafedeadcafedeadcafedeadcafedeadcafe"
+# using hex is also supported
+code = "0x0600006000396000f300"
+[alloc.storage] # set storage value for slots
+"0x0000000000000000000000000000000000000000" = "0x0000000000000000000000000000000000000001"
+
 # wallet account
 [[wallet]]
 name = "alice" # use this as alias to refer to this account
@@ -95,3 +103,23 @@ type = 0x00
 from = "alice"
 to = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 input = "0x456e9aea5e197a1f1af7a3e85a3212fa4049a3ba34c2289b4c860fc0b0c64ef3000000000000000000000000000000000000000000000000000000000000001c9242685bf161793cc25603c231bc2f568eb630ea16aa137d2664ac80388256084f8ae3bd7535248d0bd448298cc2e2071e56992d0774dc340c368ae950852ada"
+
+[[transactions]]
+type = 0x01 # EIP-2930
+from = "alice"
+to = "0x0000000000000000000000000000000000000000"
+gas-price = "50 Gwei" # override the default gas price
+[[access-list]]
+address = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+storage-keys = ["0x0000000000000000000000000000000000000000"]
+
+[[transactions]]
+type = 0x02 # EIP-1559
+from = "alice"
+to = "0x0000000000000000000000000000000000000000"
+max-fee-per-gas = "50 Gwei" # override the default max fee per gas
+priority-fee-per-gas = "5 Gwei" # override the default priority fee per gas
+max-priority-fee-per-gas = "50 Gwei" # override the default max priority fee per gas
+[[access-list]]
+address = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+storage-keys = ["0x0000000000000000000000000000000000000000"]

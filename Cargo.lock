@@ -3368,7 +3368,7 @@ dependencies = [
 [[package]]
 name = "sbv-helpers"
 version = "2.0.0"
-source = "git+https://github.com/scroll-tech/stateless-block-verifier?branch=feat%2Fscanner#4e58ca09e7414467d592b4751139e09b06e1013b"
+source = "git+https://github.com/scroll-tech/stateless-block-verifier?branch=master#e77114d75b727aa91c36696eac24e35cea2b43e2"
 dependencies = [
  "revm",
 ]
@@ -3376,7 +3376,7 @@ dependencies = [
 [[package]]
 name = "sbv-kv"
 version = "2.0.0"
-source = "git+https://github.com/scroll-tech/stateless-block-verifier?branch=feat%2Fscanner#4e58ca09e7414467d592b4751139e09b06e1013b"
+source = "git+https://github.com/scroll-tech/stateless-block-verifier?branch=master#e77114d75b727aa91c36696eac24e35cea2b43e2"
 dependencies = [
  "auto_impl",
  "hashbrown 0.15.2",
@@ -3386,7 +3386,7 @@ dependencies = [
 [[package]]
 name = "sbv-primitives"
 version = "2.0.0"
-source = "git+https://github.com/scroll-tech/stateless-block-verifier?branch=feat%2Fscanner#4e58ca09e7414467d592b4751139e09b06e1013b"
+source = "git+https://github.com/scroll-tech/stateless-block-verifier?branch=master#e77114d75b727aa91c36696eac24e35cea2b43e2"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -3416,7 +3416,7 @@ dependencies = [
 [[package]]
 name = "sbv-utils"
 version = "2.0.0"
-source = "git+https://github.com/scroll-tech/stateless-block-verifier?branch=feat%2Fscanner#4e58ca09e7414467d592b4751139e09b06e1013b"
+source = "git+https://github.com/scroll-tech/stateless-block-verifier?branch=master#e77114d75b727aa91c36696eac24e35cea2b43e2"
 dependencies = [
  "alloy-provider",
  "alloy-transport",

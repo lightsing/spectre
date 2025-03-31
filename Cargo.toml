@@ -31,8 +31,8 @@ alloy-trie = { version = "0.7", default-features = false }
 # https://github.com/alloy-rs/core
 alloy-primitives = { version = "0.8", default-features = false }
 
-sbv-primitives = { git = "https://github.com/scroll-tech/stateless-block-verifier", branch = "feat/scanner" }
-sbv-utils = { git = "https://github.com/scroll-tech/stateless-block-verifier", branch = "feat/scanner" }
+sbv-primitives = { git = "https://github.com/scroll-tech/stateless-block-verifier", branch = "master" }
+sbv-utils = { git = "https://github.com/scroll-tech/stateless-block-verifier", branch = "master" }
 
 scroll-alloy-consensus = { git = "https://github.com/scroll-tech/reth", branch = "zkvm/euclid-v2", default-features = false }
 scroll-alloy-rpc-types = { git = "https://github.com/scroll-tech/reth", branch = "zkvm/euclid-v2", default-features = false }

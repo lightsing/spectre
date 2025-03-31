@@ -43,8 +43,6 @@ pub enum BuilderError {
     AtLeastOneTransaction,
     #[error("transaction#{idx}: unexpected tx type {tx_type}")]
     UnexpectedTxType { idx: usize, tx_type: u8 },
-    #[error("transaction#{idx}: access list not set for eip2930 or eip1559 tx")]
-    AccessListNotSet { idx: usize },
     #[error("transaction#{idx}: Account not found: {name}")]
     TxAccountNotFound { idx: usize, name: String },
 
@@ -478,9 +476,7 @@ impl TransactionBuilder {
                     to: tx_kind(to),
                     value: self.value.unwrap_or_default().0,
                     input: self.input.unwrap_or_default(),
-                    access_list: self
-                        .access_list
-                        .ok_or(BuilderError::AccessListNotSet { idx })?,
+                    access_list: self.access_list.unwrap_or_default(),
                 };
                 TypedTransaction::Eip2930(tx)
             }
@@ -498,9 +494,7 @@ impl TransactionBuilder {
                     .to(),
                     to: tx_kind(to),
                     value: self.value.unwrap_or_default().0,
-                    access_list: self
-                        .access_list
-                        .ok_or(BuilderError::AccessListNotSet { idx })?,
+                    access_list: self.access_list.unwrap_or_default(),
                     input: self.input.unwrap_or_default(),
                 };
                 TypedTransaction::Eip1559(tx)

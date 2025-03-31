@@ -223,7 +223,11 @@ mod display {
     }
     impl Display for DisplayTransaction<'_> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{: <7} | ", style(self.typed_tx.tx_type()).bold().blue())?;
+            write!(
+                f,
+                "{: <9} | ",
+                style(format!("{}", self.typed_tx.tx_type())).bold().blue()
+            )?;
             write!(f, "{} -> ", self.from)?;
             if let Some(to) = self.typed_tx.to() {
                 write!(f, "{}", to)?;
